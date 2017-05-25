@@ -1,8 +1,11 @@
 import logging
 import os.path
+from collections import Counter
+import math
 
 import settings
 import common
+
 
 
 logging.basicConfig(level=settings.loggingLevel)
@@ -34,11 +37,15 @@ def analyze(src):
     pathFile = "{}.path".format(covSrc)
     goodSids, badSids = collectCov(covExe, pathFile, goodInps, badInps)
 
-    goodNRuns, goodFreqs = analyzeCov(goodSids)
+    goodNRuns, goodFreqs = analyzeCovs(goodSids)
     print goodNRuns, goodFreqs
+    assert goodNRuns == len(goodInps)
 
-    badNRuns, badFreqs = analyzeCov(badSids)    
+    badNRuns, badFreqs = analyzeCovs(badSids)
+    assert badNRuns == len(badInps)
     print badNRuns, badFreqs
+
+    sscores = analyzeFreqs(goodNRuns, goodFreqs, badNRuns, badFreqs)
 
 def collectCov(covExe, pathFile, goodInps, badInps):
     assert os.path.isfile(covExe), covExe
@@ -65,25 +72,52 @@ def collectCov(covExe, pathFile, goodInps, badInps):
     
     return goodSids, badSids
 
-def analyzeCov(sids):
+def analyzeCovs(sids):
     assert all(isinstance(sid, int) for sid in sids) and sids, sids
-
-    import itertools
-    gs = itertools.groupby(sids, key=lambda x: x != 0)    
-    ls = (l for k,l in gs if k)
-
-    from collections import Counter
     freqs = Counter()
-    
     nruns = 0
-    for l in ls:
+    
+    import itertools
+    for k, g in itertools.groupby(sids, key=lambda x: x != 0):
+        if not k: continue
         nruns += 1
-        for sid in l:
+        for sid in g:
             freqs[sid] += 1   
 
     return nruns, freqs
     
+def analyzeFreqs(goodNRuns, goodFreqs, badNRuns, badFreqs):
+    assert goodNRuns >= 1, goodNRuns
+    assert isinstance(goodFreqs, Counter), goodFreqs
     
+    assert badNRuns >= 1, badNRuns
+    assert isinstance(badFreqs, Counter), badFreqs
+
+    sids = set(list(goodFreqs) + list(badFreqs))
+
+    f = lambda sid: algTarantula(goodNRuns, goodFreqs[sid], badNRuns, badFreqs[sid])
+    scores = Counter({sid: f(sid) for sid in sids})
+    #print scores.most_common(10)
+    print scores
+
+
+    f = lambda sid: algOchiai(goodNRuns, goodFreqs[sid], badNRuns, badFreqs[sid])
+    scores = Counter({sid: f(sid) for sid in sids})
+    #print scores.most_common(10)
+    print scores
+    
+    return scores
+    
+
+def algTarantula(goodNRuns, goodOccurs, badNRuns, badOccurs):
+    a = float(badOccurs) / badNRuns
+    b = float(goodOccurs) / goodNRuns
+    c = a + b
+    return a / c if c else 0.0
+
+def algOchiai(goodNruns, goodOccurs, badNRuns, badOccurs):
+    c = math.sqrt(badOccurs * goodOccurs)
+    return badNRuns / c if c else 0.0
     
 analyze("programs/MedianBad1.c")    
 
