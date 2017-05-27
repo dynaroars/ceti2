@@ -1,5 +1,5 @@
 open Cil
-module E = Errormsg              
+module E = Errormsg
 module H = Hashtbl
 module P = Printf
 module L = List
@@ -16,6 +16,20 @@ let writeSrc ?(use_stdout:bool=false)
     close_out fout;
     P.printf "write: %s\n" filename
   )
+
+let write_file_bin (filename:string) content: unit = 
+  let fout = open_out_bin filename in
+  Marshal.to_channel fout content [];
+  close_out fout;
+  P.printf "write_file_bin: '%s'\n%!" filename
+
+let read_file_bin (filename:string) =
+  let fin = open_in_bin filename in
+  let content = Marshal.from_channel fin in
+  close_in fin;
+  P.printf "read_file: '%s'\n%!" filename;
+  content
+				      
 				      
 (*** Visitors ***)
   (*Stmts that can be tracked for fault loc and modified for bug fix *)

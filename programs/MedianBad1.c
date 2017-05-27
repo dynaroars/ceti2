@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <assert.h>
+#include <stdlib.h>
 
 int buggyQ(int x, int y, int z) {
      int m = z;

@@ -1,7 +1,6 @@
 (*instrument printf stmts to C file*)
 
 open Cil
-module E = Errormsg       
 module H = Hashtbl
 module P = Printf	     
 module L = List
@@ -49,25 +48,12 @@ end
 			  
 (* main *)			   
 let () = begin
-    E.colorFlag := true;
-
-    let src = Sys.argv.(1) in
-    let covSrc = Sys.argv.(2) in 
     initCIL();
-    Cil.lineDirectiveStyle:= None;  (*reduce code, remove all junk stuff*)
+    Cil.lineDirectiveStyle:= None; (*reduce code, remove all junk stuff*)
 
-    let ast = Frontc.parse src () in
-
-    (* (\*save orig file*\) *)
-    (* let origSrc = src ^ ".cil.c"in *)
-    (* writeSrc origSrc ast; *)
-
-    visitCilFileSameGlobals (new CM.everyVisitor) ast;
-    visitCilFileSameGlobals (new CM.breakCondVisitor :> cilVisitor) ast;
-
-    (*add stmt id*)
-    let stmtHt = H.create 1024 in
-    visitCilFileSameGlobals (new CM.numVisitor stmtHt :> cilVisitor) ast;
+    let covSrc = Sys.argv.(1) in
+    let astFile = Sys.argv.(2) in    
+    let ast = CM.read_file_bin astFile in
     
     (*add printf stmts*)
     visitCilFileSameGlobals (new coverageVisitor) ast;
@@ -75,7 +61,6 @@ let () = begin
     (*add to global
     _coverage_fout = fopen("file.c.path", "ab");
      *)
-
     let newGlobal = GVarDecl(stderrVi, !currentLoc) in 
     ast.globals <- newGlobal::ast.globals;
 
