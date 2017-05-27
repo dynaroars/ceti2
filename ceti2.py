@@ -5,16 +5,6 @@ import common
 import faultloc
 
 
-def start(src):
-    assert os.path.isfile(src), badSrc
-    assert common.isCompile(src), goodSrc
-
-    #fault localization
-    suspStmts = faultloc.analyze(src)
-    
-    #cegar loop
-
-
 if __name__ == "__main__":
     import argparse
     aparser = argparse.ArgumentParser("CETI2")
@@ -33,12 +23,15 @@ if __name__ == "__main__":
     import settings
     logging.basicConfig(level=settings.loggingLevel)
 
-    if __debug__: logging.warning("DEBUG MODE ON. Can be slow !")
+    if __debug__:
+        logging.warning("DEBUG MODE ON. Can be slow !")
     seed = round(time(), 2) if args.seed is None else float(args.seed)
 
+    import alg
+    
     #Run it
     st = time()
-    start(args.badSrc)
+    alg.start(args.badSrc)
     logging.info("time {}s".format(time() - st))
     
 

@@ -7,20 +7,26 @@ import settings
 import common
 
 
-
 logging.basicConfig(level=settings.loggingLevel)
 
-def analyze(src):
+def analyze(src, alg, tmpdir):
+    assert os.path.isfile(src), src
+    assert isinstance(alg, int), alg
+    assert os.path.isdir(tmpdir), tmpdir
+
+    basename = os.path.basename(src)
     #instrument
-    covSrc = "{}.cov.c".format(src)
+    covSrc = "{}.cov.c".format(os.path.join(tmpdir,basename))
     cmd = "./coverage {} {}".format(src, covSrc)
+    logging.debug(cmd)
     outMsg, errMsg = common.vcmd(cmd)
     assert not errMsg, errMsg
     assert os.path.isfile(covSrc)
 
     #compile
     covExe = "{}.exe".format(covSrc)
-    cmd = "gcc {} -o {}".format(covSrc, covExe)
+    cmd = "clang {} -o {}".format(covSrc, covExe)
+    logging.debug(cmd)
     _, errMsg = common.vcmd(cmd)
     assert "error" not in errMsg, errMsg
     assert os.path.isfile(covExe)
@@ -39,13 +45,12 @@ def analyze(src):
 
     goodNRuns, goodFreqs = analyzeCovs(goodSids)
     print goodNRuns, goodFreqs
-    assert goodNRuns == len(goodInps)
 
     badNRuns, badFreqs = analyzeCovs(badSids)
     assert badNRuns == len(badInps)
-    print badNRuns, badFreqs
-
-    sscores = analyzeFreqs(goodNRuns, goodFreqs, badNRuns, badFreqs)
+    sscores = getSuspScores(goodNRuns, goodFreqs, badNRuns, badFreqs, alg)
+    return sscores
+    
 
 def collectCov(covExe, pathFile, goodInps, badInps):
     assert os.path.isfile(covExe), covExe
@@ -86,7 +91,7 @@ def analyzeCovs(sids):
 
     return nruns, freqs
     
-def analyzeFreqs(goodNRuns, goodFreqs, badNRuns, badFreqs):
+def getSuspScores(goodNRuns, goodFreqs, badNRuns, badFreqs, alg):
     assert goodNRuns >= 1, goodNRuns
     assert isinstance(goodFreqs, Counter), goodFreqs
     
@@ -95,16 +100,17 @@ def analyzeFreqs(goodNRuns, goodFreqs, badNRuns, badFreqs):
 
     sids = set(list(goodFreqs) + list(badFreqs))
 
-    f = lambda sid: algTarantula(goodNRuns, goodFreqs[sid], badNRuns, badFreqs[sid])
+    if alg == 0:
+        logging.debug("fault localize using Ochiai")
+        falg = algOchiai
+    else:
+        logging.debug("fault localize using Tarantula")        
+        falg = algTarantula
+    f = lambda sid: falg(goodNRuns, goodFreqs[sid], badNRuns, badFreqs[sid])
     scores = Counter({sid: f(sid) for sid in sids})
     #print scores.most_common(10)
     print scores
 
-
-    f = lambda sid: algOchiai(goodNRuns, goodFreqs[sid], badNRuns, badFreqs[sid])
-    scores = Counter({sid: f(sid) for sid in sids})
-    #print scores.most_common(10)
-    print scores
     
     return scores
     
@@ -119,5 +125,5 @@ def algOchiai(goodNruns, goodOccurs, badNRuns, badOccurs):
     c = math.sqrt(badOccurs * goodOccurs)
     return badNRuns / c if c else 0.0
     
-analyze("programs/MedianBad1.c")    
+#analyze("programs/MedianBad1.c",alg=1)    
 

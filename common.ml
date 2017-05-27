@@ -1,11 +1,9 @@
-(*instrument printf stmts to C file*)
-
 open Cil
-module E = Errormsg       
+module E = Errormsg              
 module H = Hashtbl
-module P = Printf	     
+module P = Printf
 module L = List
-
+	     
 let copyObj (x : 'a) = 
   let s = Marshal.to_string x [] in (Marshal.from_string s 0 : 'a)
 				      
@@ -51,7 +49,7 @@ class numVisitor ht  = object(self)
     ChangeDoChildrenPost(b, action)
 
 end
-				 
+			 
 (*Makes every instruction into its own stmt*)
 class everyVisitor = object
   inherit nopCilVisitor
@@ -67,6 +65,7 @@ class everyVisitor = object
     in
     ChangeDoChildrenPost(b, action)
 end
+				      
 
 
 class breakCondVisitor = object(self)
@@ -127,70 +126,14 @@ class breakCondVisitor = object(self)
     in
     ChangeDoChildrenPost(b, action)
 end
+		       
 
-(*
-  walks over AST and preceeds each stmt with a printf that writes out its sid
-  create a stmt consisting of 2 Call instructions
-  fprintf "_coverage_fout, sid"; 
-  fflush();
- *)
+
+
 type sid_t = int
 let mkVi ?(ftype=TVoid []) fname: varinfo = makeVarinfo true fname ftype
-let stderrVi = mkVi ~ftype:(TPtr(TVoid [], [])) "_coverage_fout"
 let expOfVi (vi:varinfo): exp = Lval (var vi)
 let mkCall ?(ftype=TVoid []) ?(av=None) (fname:string) args : instr = 
   let f = var(mkVi ~ftype:ftype fname) in
   Call(av, Lval f, args, !currentLoc)
-      
-class coverageVisitor = object(self)
-  inherit nopCilVisitor
-
-  method private create_fprintf_stmt (sid : sid_t) :stmt = 
-  let str = P.sprintf "%d\n" sid in
-  let stderr = expOfVi stderrVi in
-  let instr1 = mkCall "fprintf" [stderr; Const (CStr(str))] in 
-  let instr2 = mkCall "fflush" [stderr] in
-  mkStmt (Instr([instr1; instr2]))
-    
-  method vblock b = 
-    let action (b: block) :block= 
-      let insert_printf (s: stmt): stmt list = 
-	if s.sid > 0 then [self#create_fprintf_stmt s.sid; s]
-	else [s]
-      in
-      let stmts = L.map insert_printf b.bstmts in 
-      {b with bstmts = L.flatten stmts}
-    in
-    ChangeDoChildrenPost(b, action)
-      
-  method vfunc f = 
-    let action (f: fundec) :fundec = 
-      (*print 0 when entering main so we know it's a new run*)
-      if f.svar.vname = "main" then (
-	f.sbody.bstmts <- [self#create_fprintf_stmt 0] @ f.sbody.bstmts
-      );
-      f
-    in
-    ChangeDoChildrenPost(f, action)
-end
-			  
-(* main *)			   
-let () = begin
-    E.colorFlag := true;
-
-    let src = Sys.argv.(1) in
-    let astFile = Sys.argv.(2) in 
-    initCIL();
-    Cil.lineDirectiveStyle:= None;  (*reduce code, remove all junk stuff*)
-
-    let ast = Frontc.parse src () in
-    
-    visitCilFileSameGlobals (new everyVisitor) ast;
-    visitCilFileSameGlobals (new breakCondVisitor :> cilVisitor) ast;
-
-    (*add stmt id*)
-    let stmtHt = H.create 1024 in
-    visitCilFileSameGlobals (new numVisitor stmtHt :> cilVisitor) ast;
-    
-    (*writeSrc covSrc ast*)
-end
+			   
