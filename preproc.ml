@@ -59,8 +59,8 @@ let () = begin
     let ast = Frontc.parse src () in
 
     (*save orig file*)
-    let origSrc = src ^ ".cil.c"in
-    CM.writeSrc origSrc ast;
+    (* let origSrc = src ^ ".cil.c"in *)
+    (* CM.writeSrc origSrc ast; *)
 
     visitCilFileSameGlobals (new CM.everyVisitor) ast;
     visitCilFileSameGlobals (new CM.breakCondVisitor :> cilVisitor) ast;

@@ -1,4 +1,3 @@
-(*instrument printf stmts to C file*)
 open Cil
 module H = Hashtbl
 module P = Printf	     
@@ -50,29 +49,12 @@ let () = begin
     initCIL();
     Cil.lineDirectiveStyle:= None; (*reduce code, remove all junk stuff*)
 
-    let covSrc = Sys.argv.(1) in
+    let flSrc = Sys.argv.(1) in
     let astFile = Sys.argv.(2) in    
     let ast = CM.read_file_bin astFile in
     
-    (*add printf stmts*)
-    visitCilFileSameGlobals (new coverageVisitor) ast;
+    (*add include "klee/klee.h" to file*)
+    ast.globals <- (GText "#include \"klee/klee.h\"") :: ast.globals;
 
-    (*add to global
-    _coverage_fout = fopen("file.c.path", "ab");
-     *)
-    let newGlobal = GVarDecl(stderrVi, !currentLoc) in 
-    ast.globals <- newGlobal::ast.globals;
-
-    let pathFile = covSrc ^ ".path" in
-    
-    let lhs = var(stderrVi) in
-    let arg1 = Const(CStr(pathFile)) in
-    let arg2 = Const(CStr("ab")) in
-    let instr = CM.mkCall ~av:(Some lhs) "fopen" [arg1; arg2] in
-    let newStmt = mkStmt (Instr[instr]) in
-    
-    let fd = getGlobInit ast in
-    fd.sbody.bstmts <- newStmt::fd.sbody.bstmts;
-    
-    CM.writeSrc covSrc ast
+    CM.writeSrc flSrc ast
 end

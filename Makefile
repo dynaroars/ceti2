@@ -9,7 +9,7 @@ OCAMLOPT =      ocamlopt                        $(OCAML_OPTIONS)
 OCAMLDEP =      ocamldep                        $(OCAML_OPTIONS)
 OCAMLLEX =      ocamllex 
 
-all: coverage preproc
+all: coverage preproc instrFL
 
 %.cmo: %.ml 
 	@if [ -f $*.mli -a ! -f $*.cmi ] ; then $(OCAMLC) -c -g $*.mli ; fi 
@@ -41,6 +41,16 @@ COVERAGE_MODULES = \
 
 coverage: $(COVERAGE_MODULES:.cmo=.cmx)
 		$(OCAMLOPT) -o $@ unix.cmxa str.cmxa nums.cmxa cil.cmxa $^
+
+
+INSTRFL_MODULES = \
+	common.cmo \
+	instrFL.cmo \
+
+instrFL: $(INSTRFL_MODULES:.cmo=.cmx)
+		$(OCAMLOPT) -o $@ unix.cmxa str.cmxa nums.cmxa cil.cmxa $^
+
+
 
 clean:
 	rm -f *.cmo *.cmi *.d *.cmx *.dx *.o coverage prepro

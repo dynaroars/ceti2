@@ -9,19 +9,10 @@ import common
 
 logging.basicConfig(level=settings.loggingLevel)
 
-def analyze(src, alg, tmpdir):
-    assert os.path.isfile(src), src
+def analyze(covSrc, goodInps, badInps, alg, tmpdir):
+    assert os.path.isfile(covSrc), src
     assert isinstance(alg, int), alg
     assert os.path.isdir(tmpdir), tmpdir
-
-    basename = os.path.basename(src)
-    #instrument
-    covSrc = "{}.cov.c".format(os.path.join(tmpdir,basename))
-    cmd = "./coverage {} {}".format(src, covSrc)
-    logging.debug(cmd)
-    outMsg, errMsg = common.vcmd(cmd)
-    assert not errMsg, errMsg
-    assert os.path.isfile(covSrc)
 
     #compile
     covExe = "{}.exe".format(covSrc)
@@ -36,9 +27,6 @@ def analyze(src, alg, tmpdir):
     # if not cexs:
     #     logging.warn("no cexs showing diff btw programs")
     #     exit(1) 
-
-    goodInps = set([(3,3,5), (1,2,3), (3,2,1), (5,5,5), (5, 3 ,4)])
-    badInps = set([(2,1,3)])
 
     pathFile = "{}.path".format(covSrc)
     goodSids, badSids = collectCov(covExe, pathFile, goodInps, badInps)
