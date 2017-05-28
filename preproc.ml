@@ -53,8 +53,9 @@ let () = begin
     Cil.lineDirectiveStyle:= None; (*reduce code, remove all junk stuff*)
 
     let src = Sys.argv.(1) in
-    let preprocSrc = Sys.argv.(2) in
-    let astFile = Sys.argv.(3) in     
+    let mainQName = Sys.argv.(2) in
+    let preprocSrc = Sys.argv.(3) in     
+    let astFile = Sys.argv.(4) in     
 
     let ast = Frontc.parse src () in
 
@@ -69,6 +70,9 @@ let () = begin
     let stmtHt = H.create 1024 in
     visitCilFileSameGlobals (new CM.numVisitor stmtHt :> cilVisitor) ast;
 
+    let mainFd:fundec = CM.findFun ast "main" in
+    let mainQFd:fundec = CM.findFun ast mainQName in
+
     CM.writeSrc preprocSrc ast;
-    CM.write_file_bin astFile ast
+    CM.write_file_bin astFile (ast, mainFd, mainQFd)
 end

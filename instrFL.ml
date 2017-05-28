@@ -48,12 +48,19 @@ end
 let () = begin
     initCIL();
     Cil.lineDirectiveStyle:= None; (*reduce code, remove all junk stuff*)
-
-    let flSrc = Sys.argv.(1) in
-    let astFile = Sys.argv.(2) in    
-    let ast = CM.read_file_bin astFile in
+    Cprint.printLn := false; (*don't print line #*)
+    (* for Cil to retain &&, ||, ?: instead of transforming them to If stmts *)
+    Cil.useLogicalOperators := true;
     
-    (*add include "klee/klee.h" to file*)
+
+    let flSrc:string = Sys.argv.(1) in (*save to this file*)
+    let astFile:string = Sys.argv.(2) in    
+    let ast, mainQFd, mainFd = CM.read_file_bin astFile in
+
+    (* transform *)
+
+    
+    (* add include "klee/klee.h" to file *)
     ast.globals <- (GText "#include \"klee/klee.h\"") :: ast.globals;
 
     CM.writeSrc flSrc ast

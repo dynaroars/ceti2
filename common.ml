@@ -31,8 +31,9 @@ let read_file_bin (filename:string) =
   content
 				      
 				      
-(*** Visitors ***)
-  (*Stmts that can be tracked for fault loc and modified for bug fix *)
+(* Visitors *)
+
+(** Stmts that can be tracked for fault loc and modified for bug fix **)
 let can_modify : stmtkind -> bool = function 
   |Instr[Set(_)] -> true
   |_ -> false
@@ -151,3 +152,12 @@ let mkCall ?(ftype=TVoid []) ?(av=None) (fname:string) args : instr =
   let f = var(mkVi ~ftype:ftype fname) in
   Call(av, Lval f, args, !currentLoc)
 			   
+let findFun (ast:file) (funname:string) : fundec = 
+  let fd = ref None in
+  iterGlobals ast (function 
+		    |GFun(f,_) when f.svar.vname = funname -> fd := Some f
+		    |_ -> ()
+		  );
+  match !fd with
+  |Some f -> f
+  |None -> E.s(E.error "fun '%s' not in '%s'!" funname ast.fileName)

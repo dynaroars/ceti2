@@ -59,7 +59,8 @@ def start(src):
     preprocSrc = "{}.preproc.c".format(tname)
     astFile = "{}.ast".format(tname)
 
-    cmd = "./preproc {} {} {}".format(src, preprocSrc, astFile)
+    cmd = "./preproc {} {} {} {}".format(
+        src, settings.mainQ, preprocSrc, astFile)
     logging.debug(cmd)
     outMsg, errMsg = CM.vcmd(cmd)
     assert not errMsg, errMsg
