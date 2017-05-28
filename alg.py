@@ -44,6 +44,31 @@ def execKlee(obj, timeout, outdir):
     assert not errMsg, errMsg
     return outMsg
 
+def parseGBInps(ss):
+    """
+    Obtain good/bad inputs
+
+    PASS (rb = rc = 296) with input: x 297, y 296, z -211
+    PASS (rb = rc = -211) with input: x -212, y -211, z -210
+    PASS (rb = rc = -257) with input: x -257, y -210, z -258
+    PASS (rb = rc = 0) with input: x 0, y 0, z 0
+    PASS (rb = rc = -211) with input: x 0, y -212, z -211
+    PASS (rb = rc = -300) with input: x -300, y -300, z -195
+    FAIL (rb -211, rc 32) with input: x 32, y -211, z 35
+    """
+
+    def parse(s):
+        s = s.split(":")[1]  #x 297, y 296, z -211
+        s = [s_.split()[1] for s_ in s.split(',')] #[297, 296, -211]
+        s = tuple(map(int, s))
+        return s
+
+    ss = [s for s in ss.split()]
+    gInps = set(parse(s) for s in ss if "PASS" in s)
+    bInps = set(parse(s) for s in ss if "FAIL" in s)
+
+    return gInps, bInps
+    
 
 def start(src):
     assert os.path.isfile(src), src
