@@ -4,6 +4,10 @@ module H = Hashtbl
 module P = Printf
 module L = List
 	     
+let boolTyp:typ = intType
+
+let rec range ?(a=0) b = if a >= b then [] else a::range ~a:(succ a) b
+
 let copyObj (x : 'a) = 
   let s = Marshal.to_string x [] in (Marshal.from_string s 0 : 'a)
 				      
@@ -161,3 +165,6 @@ let findFun (ast:file) (funname:string) : fundec =
   match !fd with
   |Some f -> f
   |None -> E.s(E.error "fun '%s' not in '%s'!" funname ast.fileName)
+
+let exp_of_vi (vi:varinfo): exp = Lval (var vi)
+

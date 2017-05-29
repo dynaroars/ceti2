@@ -8,7 +8,7 @@ def vcmd(cmd, inp=None, shell=True):
     return proc.communicate(input=inp)
 
 def isCompile(src):
-    cmd = "clang {} -o {}.exe".format(src, src)
+    cmd = "gcc {} -o {}.exe".format(src, src)
     logging.debug(cmd)
     outMsg, errMsg = vcmd(cmd)
     return not errMsg

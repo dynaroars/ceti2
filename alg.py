@@ -63,7 +63,24 @@ def parseGBInps(ss):
         s = tuple(map(int, s))
         return s
 
-    ss = [s for s in ss.split()]
+    assert ss, ss
+
+    ignoresDone = ['KLEE: done: total instructions',
+                   'KLEE: done: completed paths',
+                   'KLEE: done: generated tests']
+    
+    ignoresRun = [ 
+        'KLEE: WARNING: undefined reference to function: printf',
+        'KLEE: WARNING ONCE: calling external: printf',
+        'KLEE: ERROR: ASSERTION FAIL: 0',
+        'KLEE: ERROR: (location information missing) ASSERTION FAIL: 0'
+    ]
+    
+    ignoresMiscs = ['KLEE: NOTE: now ignoring this error at this location',
+                    'GOAL: ']        
+
+    ss = [s for s in ss.split('\n') if s]
+    
     gInps = set(parse(s) for s in ss if "PASS" in s)
     bInps = set(parse(s) for s in ss if "FAIL" in s)
 
@@ -96,19 +113,23 @@ def start(src):
 
     #use KLEE to get good/bad inps
     flSrc = "{}.fl.c".format(tname)
-    cmd = "./instrFL {} {}".format(flSrc, astFile)
+    cmd = "./instr {} {} {}".format(flSrc, astFile, settings.maxV)
     logging.debug(cmd)
     outMsg, errMsg = CM.vcmd(cmd)
     assert not errMsg, errMsg
     logging.debug(outMsg)    
     assert os.path.isfile(flSrc), flSrc
-
-    obj = compile(flSrc)
-    outdir = os.path.join(tmpdir, str(hash(flSrc)))
-    outMsg = execKlee(obj, settings.timeout, outdir)
+    CM.pause()
     
-    goodInps = set([(3,3,5), (1,2,3), (3,2,1), (5,5,5), (5, 3 ,4)])
-    badInps = set([(2,1,3)])
+    obj = compile(flSrc)
+    hs = str(hash(flSrc)).replace("-", "_")
+    outdir = os.path.join(tmpdir, hs)
+    outMsg = execKlee(obj, settings.timeout, outdir)
+    goodInps, badInps = parseGBInps(outMsg)
+    print goodInps
+    print badInps
+    # goodInps = set([(3,3,5), (1,2,3), (3,2,1), (5,5,5), (5, 3 ,4)])
+    # badInps = set([(2,1,3)])
     
     
     #fault localization
