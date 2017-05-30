@@ -1,10 +1,11 @@
 import logging
 import os.path
 import subprocess as sp
-import settings
-logging.basicConfig(level=settings.loggingLevel)
 
+import settings
 import common as CM
+logger = CM.getLogger(__name__, settings.loggingLevel)
+
 import faultloc
 
 def compile(src):
@@ -15,13 +16,13 @@ def compile(src):
     obj = "{}.o".format(src)
     cmd = ("clang -I {} {} {} -o {}"
            .format(includePath, clangOpts, src, obj))
-    logging.debug("$ {}".format(cmd))
+    logger.debug("$ {}".format(cmd))
 
     outMsg, errMsg = CM.vcmd(cmd)
     assert not outMsg, outMsg
     assert "clang" not in errMsg and "error" not in errMsg, errMsg
     if errMsg:
-        logging.debug(errMsg)
+        logger.debug(errMsg)
     return obj
 
 def execKlee(obj, timeout, outdir):
@@ -37,7 +38,7 @@ def execKlee(obj, timeout, outdir):
                 "-output-dir={} "
                 .format(timeout, timeout, outdir))
     cmd = "klee {} {}".format(kleeOpts, obj).strip()
-    logging.debug("$ {}".format(cmd))
+    logger.debug("$ {}".format(cmd))
     
     proc = sp.Popen(cmd,shell=True,stdout=sp.PIPE, stderr=sp.STDOUT)
     outMsg, errMsg = proc.communicate()
@@ -91,7 +92,7 @@ def start(src):
     assert os.path.isfile(src), src
     assert CM.isCompile(src), src
 
-    logging.debug("analyzing {}".format(src))
+    logger.debug("analyzing {}".format(src))
 
     import tempfile
     tmpdir = tempfile.mkdtemp(dir=settings.tmpdir, prefix="CETI2_")
@@ -103,21 +104,20 @@ def start(src):
 
     cmd = "./preproc {} {} {} {}".format(
         src, settings.mainQ, preprocSrc, astFile)
-    logging.debug(cmd)
+    logger.debug(cmd)
     outMsg, errMsg = CM.vcmd(cmd)
     assert not errMsg, errMsg
-    logging.debug(outMsg)    
+    logger.debug(outMsg)    
     assert os.path.isfile(preprocSrc), preprocSrc
     assert os.path.isfile(astFile), astFile
-
 
     #use KLEE to get good/bad inps
     flSrc = "{}.fl.c".format(tname)
     cmd = "./instr {} {} {}".format(flSrc, astFile, settings.maxV)
-    logging.debug(cmd)
+    logger.debug(cmd)
     outMsg, errMsg = CM.vcmd(cmd)
     assert not errMsg, errMsg
-    logging.debug(outMsg)    
+    logger.debug(outMsg)    
     assert os.path.isfile(flSrc), flSrc
     CM.pause()
     
@@ -126,23 +126,15 @@ def start(src):
     outdir = os.path.join(tmpdir, hs)
     outMsg = execKlee(obj, settings.timeout, outdir)
     goodInps, badInps = parseGBInps(outMsg)
-    print goodInps
-    print badInps
-    # goodInps = set([(3,3,5), (1,2,3), (3,2,1), (5,5,5), (5, 3 ,4)])
-    # badInps = set([(2,1,3)])
-    
     
     #fault localization
-
-    
-    
     #use statistical debugging to find susp stmts
     covSrc = "{}.cov.c".format(tname)
     cmd = "./coverage {} {}".format(covSrc, astFile)
-    logging.debug(cmd)
+    logger.debug(cmd)
     outMsg, errMsg = CM.vcmd(cmd)
     assert not errMsg, errMsg
-    logging.debug(outMsg)    
+    logger.debug(outMsg)    
     assert os.path.isfile(covSrc), covSrc
 
     suspStmts = faultloc.analyze(
@@ -150,4 +142,13 @@ def start(src):
     
     #cegar loop
 
+
+    
     return tmpdir
+
+
+#print goodInps
+#print badInps
+# goodInps = set([(3,3,5), (1,2,3), (3,2,1), (5,5,5), (5, 3 ,4)])
+# badInps = set([(2,1,3)])
+    

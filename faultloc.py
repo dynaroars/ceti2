@@ -4,47 +4,37 @@ from collections import Counter
 import math
 
 import settings
-import common
-
-
-logging.basicConfig(level=settings.loggingLevel)
+import common as CM
+logger = CM.getLogger(__name__, settings.loggingLevel)
 
 def analyze(covSrc, goodInps, badInps, alg, tmpdir):
     assert os.path.isfile(covSrc), src
+    assert goodInps, goodInps
+    assert badInps, badInps
     assert isinstance(alg, int), alg
     assert os.path.isdir(tmpdir), tmpdir
 
     #compile
     covExe = "{}.exe".format(covSrc)
     cmd = "clang {} -o {}".format(covSrc, covExe)
-    logging.debug(cmd)
-    _, errMsg = common.vcmd(cmd)
+    logger.debug(cmd)
+    _, errMsg = CM.vcmd(cmd)
     assert "error" not in errMsg, errMsg
     assert os.path.isfile(covExe)
     
-
-    # cexs = check(src)
-    # if not cexs:
-    #     logging.warn("no cexs showing diff btw programs")
-    #     exit(1) 
-
     pathFile = "{}.path".format(covSrc)
     goodSids, badSids = collectCov(covExe, pathFile, goodInps, badInps)
 
     goodNRuns, goodFreqs = analyzeCovs(goodSids)
-    print goodNRuns, goodFreqs
-
     badNRuns, badFreqs = analyzeCovs(badSids)
     assert badNRuns == len(badInps)
     sscores = getSuspScores(goodNRuns, goodFreqs, badNRuns, badFreqs, alg)
     return sscores
     
-
 def collectCov(covExe, pathFile, goodInps, badInps):
     assert os.path.isfile(covExe), covExe
     assert isinstance(goodInps, set) and goodInps, goodInps
     assert isinstance(badInps, set) and badInps, badInps
-
 
     def run(inps):
         if os.path.isfile(pathFile):
@@ -53,11 +43,11 @@ def collectCov(covExe, pathFile, goodInps, badInps):
         inpStrs = [" ".join(map(str, inp)) for inp in inps]
         cmds = ["{} {}".format(covExe, inpStr) for inpStr in inpStrs]
         for cmd in cmds:
-            outMsg, errMsg = common.vcmd(cmd)
+            outMsg, errMsg = CM.vcmd(cmd)
             assert not errMsg
 
         assert os.path.isfile(pathFile)
-        sids = [int(sid) for sid in common.iread(pathFile) if sid]
+        sids = [int(sid) for sid in CM.iread(pathFile) if sid]
         return sids
 
     goodSids = run(goodInps)
@@ -89,20 +79,17 @@ def getSuspScores(goodNRuns, goodFreqs, badNRuns, badFreqs, alg):
     sids = set(list(goodFreqs) + list(badFreqs))
 
     if alg == 0:
-        logging.debug("fault localize using Ochiai")
+        logger.debug("fault localize using Ochiai")
         falg = algOchiai
     else:
-        logging.debug("fault localize using Tarantula")        
+        logger.debug("fault localize using Tarantula")        
         falg = algTarantula
     f = lambda sid: falg(goodNRuns, goodFreqs[sid], badNRuns, badFreqs[sid])
     scores = Counter({sid: f(sid) for sid in sids})
     #print scores.most_common(10)
-    print scores
-
     
     return scores
     
-
 def algTarantula(goodNRuns, goodOccurs, badNRuns, badOccurs):
     a = float(badOccurs) / badNRuns
     b = float(goodOccurs) / goodNRuns
@@ -113,5 +100,3 @@ def algOchiai(goodNruns, goodOccurs, badNRuns, badOccurs):
     c = math.sqrt(badOccurs * goodOccurs)
     return badNRuns / c if c else 0.0
     
-#analyze("programs/MedianBad1.c",alg=1)    
-
