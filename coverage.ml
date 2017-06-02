@@ -52,7 +52,7 @@ let () = begin
 
     let covSrc = Sys.argv.(1) in
     let astFile = Sys.argv.(2) in    
-    let ast,_,_ = CM.read_file_bin astFile in
+    let ast,_,_,_ = CM.read_file_bin astFile in
     
     (*add printf stmts*)
     visitCilFileSameGlobals (new coverageVisitor) ast;

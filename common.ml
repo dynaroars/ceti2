@@ -3,11 +3,16 @@ module E = Errormsg
 module H = Hashtbl
 module P = Printf
 module L = List
-	     
-let boolTyp:typ = intType
 
+let string_of_list ?(delim:string = ", ") =  String.concat delim
+							   
 let rec range ?(a=0) b = if a >= b then [] else a::range ~a:(succ a) b
 
+(*check if s1 is a substring of s2*)
+let in_str s1 s2 = 
+  try ignore (Str.search_forward (Str.regexp_string s1) s2 0); true
+  with Not_found -> false
+		      
 let copyObj (x : 'a) = 
   let s = Marshal.to_string x [] in (Marshal.from_string s 0 : 'a)
 				      
@@ -145,10 +150,8 @@ class breakCondVisitor = object(self)
     in
     ChangeDoChildrenPost(b, action)
 end
-		       
 
-
-
+let boolTyp:typ = intType
 type sid_t = int
 let mkVi ?(ftype=TVoid []) fname: varinfo = makeVarinfo true fname ftype
 let expOfVi (vi:varinfo): exp = Lval (var vi)
@@ -166,5 +169,40 @@ let findFun (ast:file) (funname:string) : fundec =
   |Some f -> f
   |None -> E.s(E.error "fun '%s' not in '%s'!" funname ast.fileName)
 
-let exp_of_vi (vi:varinfo): exp = Lval (var vi)
 
+let exp_of_vi (vi:varinfo): exp = Lval (var vi)
+				       
+(*[Some 1, None, Some 2] -> [1,2]*)
+let list_of_some (l:'a option list):'a list = 
+  let rs = 
+    L.fold_left (fun l' -> function |Some f -> f::l' |None -> l') [] l
+  in L.rev rs
+
+
+(*Instrument common*)
+let mkUk
+      (uid:int) (utyp:typ)
+      (minV:int)
+      (maxV:int)
+      (mainFd: fundec)
+    :(varinfo*instr list) =
+  
+  let vname = "uk_" ^ string_of_int uid in
+  let vi:varinfo = makeLocalVar mainFd vname utyp in
+  let lv:lval = var vi in
+  
+  (*klee_make_symbolic(&uk,sizeof(uk),"uk")*)
+  let mkSymInstr:instr =
+    mkCall "klee_make_symbolic"
+	   [mkAddrOf(lv); SizeOfE(Lval lv); Const (CStr vname)]
+  in
+  let maxE = integer maxV in
+  let minE = integer minV  in
+  let klee_assert_lb:instr =
+    mkCall "klee_assume" [BinOp(Le, minE, Lval lv, boolTyp)] in
+  
+  let klee_assert_ub:instr =
+    mkCall "klee_assume" [BinOp(Le, Lval lv, maxE, boolTyp)] in
+  	      
+  (vi, [mkSymInstr; klee_assert_lb; klee_assert_ub])
+	   

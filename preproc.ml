@@ -74,5 +74,5 @@ let () = begin
     let mainQFd:fundec = CM.findFun ast mainQName in
 
     CM.writeSrc preprocSrc ast;
-    CM.write_file_bin astFile (ast, mainFd, mainQFd)
+    CM.write_file_bin astFile (ast, mainFd, mainQFd, stmtHt)
 end

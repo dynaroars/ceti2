@@ -92,17 +92,17 @@ def start(src):
     assert os.path.isfile(src), src
     assert CM.isCompile(src), src
 
-    logger.debug("analyzing {}".format(src))
+    logger.info("analyzing {}".format(src))
 
     import tempfile
     tmpdir = tempfile.mkdtemp(dir=settings.tmpdir, prefix="CETI2_")
     tname = os.path.join(tmpdir, os.path.basename(src))
     
-    #preproc and save ast
+    logger.info("preproc and save ast")
     preprocSrc = "{}.preproc.c".format(tname)
     astFile = "{}.ast".format(tname)
 
-    cmd = "./preproc {} {} {} {}".format(
+    cmd = "./preproc.exe {} {} {} {}".format(
         src, settings.mainQ, preprocSrc, astFile)
     logger.debug(cmd)
     outMsg, errMsg = CM.vcmd(cmd)
@@ -111,15 +111,14 @@ def start(src):
     assert os.path.isfile(preprocSrc), preprocSrc
     assert os.path.isfile(astFile), astFile
 
-    #use KLEE to get good/bad inps
+    logger.info("get good/bad inps")
     flSrc = "{}.fl.c".format(tname)
-    cmd = "./instr {} {} {}".format(flSrc, astFile, settings.maxV)
+    cmd = "./instr.exe {} {} {}".format(flSrc, astFile, settings.maxV)
     logger.debug(cmd)
     outMsg, errMsg = CM.vcmd(cmd)
     assert not errMsg, errMsg
     logger.debug(outMsg)    
     assert os.path.isfile(flSrc), flSrc
-    CM.pause()
     
     obj = compile(flSrc)
     hs = str(hash(flSrc)).replace("-", "_")
@@ -127,10 +126,10 @@ def start(src):
     outMsg = execKlee(obj, settings.timeout, outdir)
     goodInps, badInps = parseGBInps(outMsg)
     
-    #fault localization
+    logger.info("fault localization")
     #use statistical debugging to find susp stmts
     covSrc = "{}.cov.c".format(tname)
-    cmd = "./coverage {} {}".format(covSrc, astFile)
+    cmd = "./coverage.exe {} {}".format(covSrc, astFile)
     logger.debug(cmd)
     outMsg, errMsg = CM.vcmd(cmd)
     assert not errMsg, errMsg
@@ -139,9 +138,14 @@ def start(src):
 
     suspStmts = faultloc.analyze(
         covSrc, goodInps, badInps, settings.faultlocAlg, tmpdir)
-    
-    #cegar loop
 
+    for sid, score in suspStmts.most_common(3):
+        print sid, score
+        cmd = "./spy.exe {} {} {}".format(astFile, sid, settings.tplLevel)
+        logger.debug(cmd)
+        outMsg, errMsg = CM.vcmd(cmd)
+        logger.debug(errMsg)
+        logger.debug(outMsg)    
 
     
     return tmpdir

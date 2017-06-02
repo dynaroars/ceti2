@@ -49,34 +49,11 @@ end
 let test = int_of_string "1000"
 let ukMaxV:exp = integer test
 
-let mkUk
-      (uid:int) (utyp:typ)
-      (maxV:int)
-      (mainFd: fundec)
-    :(varinfo*instr list) =
-  let vname = "uk_" ^ string_of_int uid in
-  let vi:varinfo = makeLocalVar mainFd vname utyp in
-  let lv:lval = var vi in
-  
-  (*klee_make_symbolic(&uk,sizeof(uk),"uk")*)
-  let mkSymInstr:instr =
-    CM.mkCall "klee_make_symbolic"
-  	      [mkAddrOf(lv); SizeOfE(Lval lv); Const (CStr vname)]
-  in
-  let maxE = integer maxV in
-  let minE = integer (-1 * maxV)  in
-  let klee_assert_lb:instr =
-    CM.mkCall "klee_assume" [BinOp(Le, minE, Lval lv, CM.boolTyp)] in
-  
-  let klee_assert_ub:instr =
-    CM.mkCall "klee_assume" [BinOp(Le, Lval lv, maxE, CM.boolTyp)] in
-  	      
-  (vi, [mkSymInstr; klee_assert_lb; klee_assert_ub])
 
 let mkMain mainFd mainQFd maxV =
   (*let vs:varinfo list = mainQFd.sformals in*)
   let uks = L.mapi(fun i vi ->
-		  let v, i = mkUk i vi.vtype maxV mainFd in 
+		  let v, i = CM.mkUk i vi.vtype (-1*maxV) maxV mainFd in 
 		  CM.exp_of_vi v, i
 		  ) mainQFd.sformals in
 
@@ -109,7 +86,7 @@ let () = begin
     let flSrc:string = Sys.argv.(1) in (*save to this file*)
     let astFile:string = Sys.argv.(2) in
     let maxV:int = int_of_string Sys.argv.(3) in
-    let ast, mainFd, mainQFd = CM.read_file_bin astFile in
+    let ast, mainFd, mainQFd, stmtHt = CM.read_file_bin astFile in
 
     (* transform *)
     mkMain mainFd mainQFd maxV;
