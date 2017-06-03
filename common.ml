@@ -5,6 +5,8 @@ module P = Printf
 module L = List
 
 let string_of_list ?(delim:string = ", ") =  String.concat delim
+let str_split s:string list =  Str.split (Str.regexp "[ \t]+")  s					 
+							   
 							   
 let rec range ?(a=0) b = if a >= b then [] else a::range ~a:(succ a) b
 
