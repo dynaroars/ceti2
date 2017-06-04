@@ -4,9 +4,21 @@ module H = Hashtbl
 module P = Printf
 module L = List
 
+
+let string_of_typ (s:typ) = Pretty.sprint ~width:80 (dn_type () s)
+let string_of_stmt (s:stmt) = Pretty.sprint ~width:80 (dn_stmt () s) 
+let string_of_exp (s:exp) = Pretty.sprint ~width:80 (dn_exp () s) 
+let string_of_instr (s:instr) = Pretty.sprint ~width:80 (dn_instr () s) 
+let string_of_lv (s:lval) = Pretty.sprint ~width:80 (dn_lval () s)
+
+let const_exp_of_string (t:typ) (s:string): exp = match t with
+  |TInt _ -> integer (int_of_string s)
+  |TFloat(fk,_) -> Const(CReal(float_of_string s,fk,None))
+  |_-> E.s(E.error "unexp typ %a " dn_type t)
+
+	  
 let string_of_list ?(delim:string = ", ") =  String.concat delim
-let str_split s:string list =  Str.split (Str.regexp "[ \t]+")  s					 
-							   
+let str_split s:string list =  Str.split (Str.regexp "[ \t]+")  s					 							     
 							   
 let rec range ?(a=0) b = if a >= b then [] else a::range ~a:(succ a) b
 
@@ -208,3 +220,4 @@ let mkUk
   	      
   (vi, [mkSymInstr; klee_assert_lb; klee_assert_ub])
 	   
+    

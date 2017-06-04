@@ -10,7 +10,14 @@ type spy_t = CM.sid_t*int*int*int (*sid,cid,level,idx*)
 let string_of_spys ((sid,cid,level,idx):spy_t): string =
   P.sprintf "(%d, %d, %d, %d)" sid cid level idx
 
-	    
+
+(*apply binary op to a list of exps, e.g, + [v1,..,vn] =>  v1 + .. + vn*)
+let applyBinop (op:binop) (exps:exp list): exp = 
+  assert (L.length exps > 0);
+  let e0 = L.hd exps in 
+  let ty = typeOf e0 in
+  L.fold_left (fun e e' -> BinOp(op,e,e',ty)) e0 (L.tl exps)
+	      
 class findBoolVars (bvs:varinfo list ref) = object
   inherit nopCilVisitor
 
@@ -164,13 +171,6 @@ class mtempl_OPS_PR cname cid level = object(self)
 	     
     |_ -> None
 
-  (*apply binary op to a list of exps, e.g, + [v1,..,vn] =>  v1 + .. + vn*)
-  method private applyBinop (op:binop) (exps:exp list): exp = 
-    assert (L.length exps > 0);
-    let e0 = L.hd exps in 
-    let ty = typeOf e0 in
-    L.fold_left (fun e e' -> BinOp(op,e,e',ty)) e0 (L.tl exps)
-
   (*
   apply a list of ops, e.g., 
   apply_bops x y + * [v1;v2] [<; =; >] gives
@@ -236,7 +236,7 @@ class mtempl_OPS_PR cname cid level = object(self)
 				   CM.exp_of_vi vi
 				  ) rs in
 		  
-		  let xorExp = self#applyBinop BXor uks in		  
+		  let xorExp = applyBinop BXor uks in		  
 		  let assertXor:instr = CM.mkCall "klee_assume" [xorExp] in
 		  (* let klee_assert_xor:instr =  *)
 		  (*   CC.mkCall "__VERIFIER_assume" [xor_exp] in *)

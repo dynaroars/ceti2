@@ -108,7 +108,7 @@ def start(src):
     astFile = "{}.ast".format(mysrc)
 
     cmd = "./preproc.exe {} {} {} {}".format(
-        mysrc, settings.mainQ, preprocSrc, astFile)
+        mysrc, settings.mainQ, settings.correctQ, preprocSrc, astFile)
     logger.debug(cmd)
     
     outMsg, errMsg = CM.vcmd(cmd)
@@ -131,6 +131,17 @@ def start(src):
     outdir = os.path.join(tmpdir, hs)
     outMsg = execKlee(obj, settings.timeout, outdir)
     goodInps, badInps = parseGBInps(outMsg)
+
+    #write inps to files
+    strOfInps = lambda inps: " ".join(map(str, inps))
+    strOfInpss = lambda inpss: "\n".join(map(strOfInps, inpss))
+
+    goodInpsFile = os.path.join(tmpdir, "good.inps")
+    CM.vwrite(goodInpsFile, strOfInps(goodInps))
+
+    badInpsFile = os.path.join(tmpdir, "bad.inps")
+    CM.vwrite(badInpsFile, strOfInps(badInps))
+    
     
     logger.info("fault localization")
     #use statistical debugging to find susp stmts

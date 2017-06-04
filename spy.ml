@@ -41,7 +41,7 @@ let () = begin
     let tplLevel:int = int_of_string Sys.argv.(3) in
     let maxV:int = int_of_string Sys.argv.(4) in
 
-    let ast, mainFd, mainQFd, stmtHt = CM.read_file_bin astFile in
+    let ast, mainFd'', mainQFd'', correctQFd'', stmtHt = CM.read_file_bin astFile in
     let rs = L.map (fun sid -> spy ast.fileName stmtHt sid tplLevel maxV) sids in
     let rs' = L.filter (function |[] -> false |_ -> true) rs in
     let rs = L.flatten rs' in

@@ -54,8 +54,9 @@ let () = begin
 
     let src = Sys.argv.(1) in
     let mainQName = Sys.argv.(2) in
-    let preprocSrc = Sys.argv.(3) in     
-    let astFile = Sys.argv.(4) in     
+    let correctQName = Sys.argv.(3) in    
+    let preprocSrc = Sys.argv.(4) in     
+    let astFile = Sys.argv.(5) in     
 
     let ast = Frontc.parse src () in
 
@@ -72,7 +73,8 @@ let () = begin
 
     let mainFd:fundec = CM.findFun ast "main" in
     let mainQFd:fundec = CM.findFun ast mainQName in
+    let correctQFd:fundec = CM.findFun ast correctQName in    
 
     CM.writeSrc preprocSrc ast;
-    CM.write_file_bin astFile (ast, mainFd, mainQFd, stmtHt)
+    CM.write_file_bin astFile (ast, mainFd, mainQFd, correctQFd, stmtHt)
 end

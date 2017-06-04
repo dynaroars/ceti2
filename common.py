@@ -6,6 +6,10 @@ def vcmd(cmd, inp=None, shell=True):
                     stdout=sp.PIPE,stderr=sp.PIPE)
     return proc.communicate(input=inp)
 
+def vwrite(filename, contents, mode='w'):
+    with open(filename, mode) as fh:
+        fh.write(contents)
+
 def isCompile(src):
     cmd = "gcc {} -o {}.exe".format(src, src)
     outMsg, errMsg = vcmd(cmd)

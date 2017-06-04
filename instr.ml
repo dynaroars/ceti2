@@ -46,12 +46,7 @@ class coverageVisitor = object(self)
     ChangeDoChildrenPost(f, action)
 end
 
-let test = int_of_string "1000"
-let ukMaxV:exp = integer test
-
-
 let mkMain mainFd mainQFd maxV =
-  (*let vs:varinfo list = mainQFd.sformals in*)
   let uks = L.mapi(fun i vi ->
 		  let v, i = CM.mkUk i vi.vtype (-1*maxV) maxV mainFd in 
 		  CM.exp_of_vi v, i
@@ -86,7 +81,7 @@ let () = begin
     let flSrc:string = Sys.argv.(1) in (*save to this file*)
     let astFile:string = Sys.argv.(2) in
     let maxV:int = int_of_string Sys.argv.(3) in
-    let ast, mainFd, mainQFd, stmtHt = CM.read_file_bin astFile in
+    let ast, mainFd, mainQFd, correctQFd'', stmtHt = CM.read_file_bin astFile in
 
     (* transform *)
     mkMain mainFd mainQFd maxV;
