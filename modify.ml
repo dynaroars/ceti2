@@ -76,48 +76,40 @@ end
 
 let mkMain (mainFd:fundec)
 	   (mainQFd:fundec)
-	   (correctQFd: fundec)
 	   (minps:string list list)
 	   (uks:varinfo list)
 	   (instrs1:instr list) :stmt list=
   
-  (* mainQTyp tmpMainQ;  correctQTyp tmpCorrectQ *)
+  (* mainQTyp tmpMainQ *)
   let mkTmp fdec =
     let mtyp:typ = match fdec.svar.vtype with 
       |TFun(t,_,_,_) -> t
       |_ -> E.s(E.error "%s is not fun typ %a\n" 
 			mainQFd.svar.vname d_type mainQFd.svar.vtype)
     in
-    let tmp:lval = var(makeTempVar mainFd mtyp) in 
     let argTyps = L.map (fun vi -> vi.vtype) fdec.sformals in
-    mtyp, tmp, argTyps
+    mtyp, argTyps
   in
-  
-  let mainQTyp, tmpMainQ, argsMainQTyps = mkTmp mainQFd in 
-  let correctQTyp, tmpCorrectQ, argsCorrectQTyps = mkTmp correctQFd in 
-
+  let mainQTyp, argsMainQTyps = mkTmp mainQFd in 
   let rs =
-    let mkInstr (inps:string list) ftyp tmp argTyps = 
+    let mkInstr (inps:string list) typ tmp argTyps = 
       assert (L.length argTyps = L.length inps);	   
       (*tmp = fun(inps);*)
       let args = L.map2 (fun t x -> CM.const_exp_of_string t x)
 			argTyps inps in
-      CM.mkCall ~ftype:ftyp ~av:(Some tmp) mainQFd.svar.vname args
+      CM.mkCall ~ftype:typ ~av:(Some tmp) mainQFd.svar.vname args
     in
     
     L.map (fun inps ->
-	   let iMainQ = mkInstr inps mainQTyp tmpMainQ argsMainQTyps in 
-	   let iCorrectQ = mkInstr inps correctQTyp tmpCorrectQ argsCorrectQTyps in
-	   
-	   let e:exp = BinOp(Eq, 
-			     Lval tmpMainQ, Lval tmpCorrectQ, 
-			     CM.boolTyp) in
-	   [iMainQ; iCorrectQ], e
-	  ) minps in
+	   let tmp:lval = var(makeTempVar mainFd mainQTyp) in 
+	   let call = mkInstr inps mainQTyp tmp argsMainQTyps in (*tmpX = mainQ(..);*)
+	   let e:exp = BinOp(Ne, Lval tmp, zero, CM.boolTyp) in
+	   call, e
+	  ) minps
+  in
   
-  let instrs2, exps = L.split rs in 
-  let instrs2 = L.flatten instrs2 in
-		
+  let instrs2, exps = L.split rs in
+  
   (*creates reachability "goal" stmt 
     if(e_1,..,e_n){printf("GOAL: uk0 %d, uk1 %d ..\n",uk0,uk1);klee_assert(0);}
    *)
@@ -125,13 +117,13 @@ let mkMain (mainFd:fundec)
 	      fun uk -> uk.vname ^ (if uk.vtype = intType then " %d" else " %g")
 	    ) uks in
   let s = "GOAL: " ^ (String.concat ", " s) ^ "\n" in 
-  let print_goal:instr = CM.mkCall "printf" 
-				   (Const(CStr(s))::(L.map CM.exp_of_vi uks)) in 
+  let printGoal:instr = CM.mkCall "printf" 
+				  (Const(CStr(s))::(L.map CM.exp_of_vi uks)) in 
   
   (*klee_assert(0);*)
-  let assert_zero:instr = CM.mkCall "klee_assert" [zero] in
+  let assertZero:instr = CM.mkCall "klee_assert" [zero] in
   let andExps = MT.applyBinop LAnd exps in
-  let reachStmt = mkStmt (Instr([print_goal; assert_zero])) in
+  let reachStmt = mkStmt (Instr([printGoal; assertZero])) in
   reachStmt.labels <- [Label("ERROR", !currentLoc, false)];
   let ifSkind = If(andExps, mkBlock [reachStmt], mkBlock [], !currentLoc) in
   let instrsSkind:stmtkind = Instr(instrs1@instrs2) in
@@ -148,7 +140,7 @@ let transform
       (xinfo:string)
       (maxV:int) =
   
-  let ast, mainFd, mainQFd, correctQFd, stmtHt = CM.read_file_bin astFile in
+  let ast, mainFd, mainQFd, correctQFd'', stmtHt = CM.read_file_bin astFile in
   let minps:string list list =
     L.map CM.str_split (CM.read_file_ascii ~keep_empty:false inpsFile )
   in 
@@ -161,7 +153,7 @@ let transform
   if stat = "" then E.s(E.error "stmt [%d] not modified" sid);
 
   (*modify main*)
-  let mainStmts:stmt list = mkMain mainFd mainQFd correctQFd minps uks instrs in
+  let mainStmts:stmt list = mkMain mainFd mainQFd minps uks instrs in
   mainFd.sbody.bstmts <- mainStmts;
   (*add uk's to fun decls and fun calls*)
   let fiv = (new funInstrVisitor) uks in
