@@ -5,7 +5,6 @@ module P = Printf
 module L = List
 module CM = Common	     
 				      
-
 (*
   walks over AST and preceeds each stmt with a printf that writes out its sid
   create a stmt consisting of 2 Call instructions

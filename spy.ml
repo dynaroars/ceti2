@@ -7,7 +7,6 @@ module L = List
 module CM = Common	     
 module MT = Modtemplate
 	      
-					    
 let spy 
       (filename:string)
       (stmtHt:(int,stmt*fundec) H.t)
@@ -16,14 +15,14 @@ let spy
       (maxV:int)
     : MT.spy_t list
   = 
-  let s,fd = H.find stmtHt sid in
+  let s, fd = H.find stmtHt sid in
   E.log "Spying stmt id %d in fun %s\n%a\n" sid fd.svar.vname dn_stmt s;
   
   match s.skind with 
   |Instr ins ->
     assert (L.length ins = 1);
     let spyf p c = if p then c#spyStmt filename sid fd (L.hd ins) else None in 
-    let rs = L.map(fun cl -> spyf (cl#level <= tplLevel) cl) MT.tplCls in
+    let rs = L.map(fun c -> spyf (c#cid <= tplLevel) c) MT.tplCls in
     CM.list_of_some rs
   |_ -> E.log "no info obtained on stmt %d\n%a" sid dn_stmt s; []
 

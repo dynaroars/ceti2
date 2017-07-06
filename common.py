@@ -13,7 +13,11 @@ def vwrite(filename, contents, mode='w'):
 def isCompile(src):
     cmd = "gcc {} -o {}.exe".format(src, src)
     outMsg, errMsg = vcmd(cmd)
-    return not errMsg
+    if 'error:' in errMsg:
+        print errMsg
+        return False
+    else:
+        return True
 
 def iread(filename):
     with open(filename, 'r') as fh:

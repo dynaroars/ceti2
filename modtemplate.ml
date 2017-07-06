@@ -6,9 +6,9 @@ module P = Printf
 module L = List
 module CM = Common	     
 
-type spy_t = CM.sid_t*int*int*int (*sid,cid,level,idx*)
-let string_of_spys ((sid,cid,level,idx):spy_t): string =
-  P.sprintf "(%d, %d, %d, %d)" sid cid level idx
+type spy_t = CM.sid_t*int*int (*sid,cid,idx*)
+let string_of_spys ((sid,cid,idx):spy_t): string =
+  P.sprintf "(%d, %d, %d)" sid cid idx
 
 
 (*apply binary op to a list of exps, e.g, + [v1,..,vn] =>  v1 + .. + vn*)
@@ -34,13 +34,11 @@ let findBoolvs fd =
 
 (** Modify template *)
 class virtual
-    mtempl (cname:string) (cid:int) (level:int) = object
+    mtempl (cname:string) (cid:int) = object
       val cname = cname
       val cid = cid
-      val level = level
       method cname : string = cname
       method cid   : int = cid
-      method level : int = level
       method virtual spyStmt : string -> CM.sid_t -> fundec ->
 			       (instr -> spy_t option)
       method virtual mkInstr : file -> fundec ->
@@ -53,9 +51,9 @@ class virtual
 (** Const Template:
 replace all consts found in an exp to a parameter 
 *)
-class mtempl_CONSTS cname cid level = object(self)
+class mtempl_CONSTS = object(self)
 						      
-  inherit mtempl cname cid level as super
+  inherit mtempl "CONSTS" 1 as super
 
   (*returns n, the number of consts found in exp
     This produces 1 template stmt with n params*)
@@ -76,7 +74,7 @@ class mtempl_CONSTS cname cid level = object(self)
       in
       let nConsts:int = findConsts 0 e in
       E.log "%s: found %d consts\n" super#cname nConsts;
-      if nConsts > 0 then Some(sid, super#cid, super#level, nConsts)
+      if nConsts > 0 then Some(sid, super#cid, nConsts)
       else None
     |_ -> None
 	    
@@ -129,8 +127,8 @@ end
 
 
 (*Template for creating parameterized ops*)
-class mtempl_OPS_PR cname cid level = object(self)
-  inherit mtempl cname cid level as super 
+class mtempl_OPS_PR = object(self)
+  inherit mtempl "OPS_PR" 2 as super 
   val opsHt:(binop, binop list) H.t = H.create 128
 
   val logicBops = [|LAnd; LOr|]
@@ -166,7 +164,7 @@ class mtempl_OPS_PR cname cid level = object(self)
       let nOps:int = findOps 0 e in
       
       E.log "%s: found %d ops\n" super#cname nOps;
-      if nOps > 0 then Some(sid, super#cid, super#level, nOps)
+      if nOps > 0 then Some(sid, super#cid, nOps)
       else None
 	     
     |_ -> None
@@ -271,8 +269,8 @@ to
 typ x = uk0 + uk1*v1 + uk2*v2 ; 
 where v0 have the same type as x, i.e., typ 
 and other vi has type int, i.e., uk_i = {-1,0,1} *)
-class mtempl_VS cname cid level = object(self)
-  inherit mtempl cname cid level as super
+class mtempl_VS = object(self)
+  inherit mtempl "VS" 3 as super
 
   method private arrStr = P.sprintf "%s.s%d.t%d.arr" (*f.c.s1.t3.arr*)
 
@@ -310,7 +308,7 @@ class mtempl_VS cname cid level = object(self)
       
       if nvs > 0 then(
 	CM.write_file_bin (self#arrStr filename sid super#cid) (A.of_list vs);
-	Some(sid, super#cid, super#level, nvs)
+	Some(sid, super#cid, nvs)
       ) else None
 
     |_ -> None
@@ -370,8 +368,7 @@ end
 
 						
 let tplCls:mtempl list = 
-  [((new mtempl_CONSTS) "CONSTS" 3 1 :> mtempl);
-   ((new mtempl_OPS_PR) "OPS_PR" 7 2 :> mtempl);  
-   ((new mtempl_VS)     "VS"     1 4 :> mtempl)] 
+  [new mtempl_CONSTS; new mtempl_OPS_PR; new mtempl_VS] 
+   
 
 					    

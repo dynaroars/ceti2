@@ -38,8 +38,6 @@ object (self)
 	 status <- (P.sprintf "%s ## %s"  (*the symbol is used when parsing*)
 			      (CM.string_of_instr old_i) (CM.string_of_instr new_i));
 
-	 E.log "%s" status
-
        |_ -> ()
       ); s in
     ChangeDoChildrenPost(s, action)  
@@ -134,7 +132,7 @@ let mkMain (mainFd:fundec)
   let assert_zero:instr = CM.mkCall "klee_assert" [zero] in
   let andExps = MT.applyBinop LAnd exps in
   let reachStmt = mkStmt (Instr([print_goal; assert_zero])) in
-  reachStmt.labels <- [Label("ERROR",!currentLoc,false)];
+  reachStmt.labels <- [Label("ERROR", !currentLoc, false)];
   let ifSkind = If(andExps, mkBlock [reachStmt], mkBlock [], !currentLoc) in
   let instrsSkind:stmtkind = Instr(instrs1@instrs2) in
   [mkStmt instrsSkind; mkStmt ifSkind]
@@ -145,27 +143,29 @@ let transform
       (astFile:string)
       (inpsFile:string)      
       (sid:CM.sid_t)
-      (tplLevel:int)
+      (tplId:int)
+      (idxs:int list)      
       (xinfo:string)
-      (idxs:int list)
       (maxV:int) =
   
   let ast, mainFd, mainQFd, correctQFd, stmtHt = CM.read_file_bin astFile in
-  let minps:string list list  = CM.read_file_bin inpsFile in (*TODO*)
-  let cl = L.find(fun cl -> cl#cid = tplLevel) MT.tplCls in
-  let mkInstr = cl#mkInstr ast mainFd sid tplLevel maxV idxs xinfo in
+  let minps:string list list =
+    L.map CM.str_split (CM.read_file_ascii ~keep_empty:false inpsFile )
+  in 
+  let cl = L.find(fun cl -> cl#cid = tplId) MT.tplCls in
+  let mkInstr = cl#mkInstr ast mainFd sid tplId maxV idxs xinfo in
 
   let visitor = (new modStmtVisitor) sid (fun i -> mkInstr i) in
   visitCilFileSameGlobals (visitor:> cilVisitor) ast;
   let stat, uks, instrs = visitor#status, visitor#uks, visitor#instrs in 
   if stat = "" then E.s(E.error "stmt [%d] not modified" sid);
-  
+
   (*modify main*)
   let mainStmts:stmt list = mkMain mainFd mainQFd correctQFd minps uks instrs in
   mainFd.sbody.bstmts <- mainStmts;
-
   (*add uk's to fun decls and fun calls*)
   let fiv = (new funInstrVisitor) uks in
+
   visitCilFileSameGlobals (fiv :> cilVisitor) ast;
   visitCilFileSameGlobals ((new instrCallVisitor) uks fiv#ht) ast;
 
@@ -190,10 +190,9 @@ let () = begin
     let astFile:string = Sys.argv.(1) in
     let inpsFile:string = Sys.argv.(2) in    
     let sid:CM.sid_t = int_of_string Sys.argv.(3) in
-    let tplLevel:int = int_of_string Sys.argv.(4) in 
-    let xinfo:string = Sys.argv.(5) in
-    let idxs:int list = L.map int_of_string (CM.str_split Sys.argv.(6)) in    
+    let tplId:int = int_of_string Sys.argv.(4) in 
+    let idxs:int list = L.map int_of_string (CM.str_split Sys.argv.(5)) in
+    let xinfo:string = Sys.argv.(6) in    
     let maxV:int = int_of_string Sys.argv.(7) in
-    transform astFile inpsFile sid tplLevel xinfo idxs maxV
-
-end
+    transform astFile inpsFile sid tplId idxs xinfo maxV
+  end

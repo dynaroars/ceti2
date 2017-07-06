@@ -1,4 +1,3 @@
-#import logging
 import os.path
 import logging
 import common as CM

@@ -52,7 +52,19 @@ let read_file_bin (filename:string) =
   close_in fin;
   P.printf "read_file: '%s'\n%!" filename;
   content
-				      
+
+let read_file_ascii ?(keep_empty=true) (filename:string) :string list =
+  let lines:string list ref = ref [] in
+  let fin = open_in filename in
+  (try
+     while true do 
+       let line = String.trim (input_line fin) in 
+       lines := line::!lines
+       done
+   with _ -> close_in fin);
+
+  let lines = L.rev !lines in 
+  if keep_empty then lines else L.filter (fun l -> l <> "") lines    
 				      
 (* Visitors *)
 
