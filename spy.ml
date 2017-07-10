@@ -27,7 +27,9 @@ let spy
   |_ -> E.log "no info obtained on stmt %d\n%a" sid dn_stmt s; []
 
 
-(* main *)			   
+(* main *)
+(*Example:  ./spy.exe /var/tmp/CETI2_XhtAbh/MedianBad1.c.ast "2 13 3" 4 1000
+Output:(2, 3, 4); (13, 3, 4); (3, 2, 1); (3, 3, 4)  (sid, cid, idx)*)
 let () = begin
     initCIL();
     Cil.lineDirectiveStyle:= None; (*reduce code, remove all junk stuff*)

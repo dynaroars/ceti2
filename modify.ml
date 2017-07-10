@@ -9,7 +9,7 @@ module MT = Modtemplate
 	      
 (* modify statements *)
 class modStmtVisitor 
-	(sid:int) 
+	(sid:CM.sid_t) 
 	(mkInstr:instr -> varinfo list ref -> instr list ref -> instr) = 
 object (self)
 
@@ -35,7 +35,7 @@ object (self)
 	 let new_i = mkInstr old_i uks instrs in	
 	 s.skind <- Instr[new_i];
 
-	 status <- (P.sprintf "%s ## %s"  (*the symbol is used when parsing*)
+	 status <- (P.sprintf "%s ## %s"  (*the symbol ## is used when parsing*)
 			      (CM.string_of_instr old_i) (CM.string_of_instr new_i));
 
        |_ -> ()
@@ -123,7 +123,7 @@ let mkMain (mainFd:fundec)
   (*klee_assert(0);*)
   let assertZero:instr = CM.mkCall "klee_assert" [zero] in
   let andExps = MT.applyBinop LAnd exps in
-  let reachStmt = mkStmt (Instr([printGoal; assertZero])) in
+  let reachStmt:stmt = mkStmt (Instr([printGoal; assertZero])) in
   reachStmt.labels <- [Label("ERROR", !currentLoc, false)];
   let ifSkind = If(andExps, mkBlock [reachStmt], mkBlock [], !currentLoc) in
   let instrsSkind:stmtkind = Instr(instrs1@instrs2) in

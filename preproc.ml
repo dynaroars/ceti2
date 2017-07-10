@@ -47,7 +47,11 @@ class coverageVisitor = object(self)
     ChangeDoChildrenPost(f, action)
 end
 			  
-(* main *)			   
+(* main *)
+(*Example:
+/preproc.exe /var/tmp/CETI2_XhtAbh/MedianBad1.c mainQ correctQ /var/tmp/CETI2_XhtAbh/MedianBad1.c.preproc.c /var/tmp/CETI2_XhtAbh/MedianBad1.c.ast
+
+*)
 let () = begin
     initCIL();
     Cil.lineDirectiveStyle:= None; (*reduce code, remove all junk stuff*)

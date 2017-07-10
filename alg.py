@@ -97,12 +97,14 @@ class SRun(object):
     
 
 class Worker(object):
-    def __init__(self, wid, src, inpsFile, sid, cid, myid, idxs):
+    def __init__(self, wid, src, preprocSrc, inpsFile, sid, cid, myid, idxs):
         assert wid >= 0, wid
         assert isinstance(src, str) and os.path.isfile(src), src
+        assert isinstance(preprocSrc, str) and os.path.isfile(preprocSrc), src
         
         self.wid = wid
         self.src = src
+        self.preprocSrc = preprocSrc
         self.inpsFile = inpsFile
         self.sid = sid
         self.cid = cid #template id
@@ -152,9 +154,10 @@ class Worker(object):
 
         return rsFile, oldStmt, newStmt
 
-
-    #compile transformed file and run run klee on it
+    
     def klee (self, src):
+        #compile transformed file and run run klee on it
+        
         logger.debug("worker {}: run klee on {} ***".format(self.wid, src))
 
         #compile file with llvm
@@ -212,42 +215,72 @@ class Worker(object):
                         return s
 
         return None
+
+    def repair(self, oldStmt, newStmt, uks):
+        #/var/tmp/CETI2_xkj_Bm/MedianBad1.c.s2.t3_z1_c0.ceti.c: m = y; ===> m = uk_0 + uk_1 * x; ===> uk_0 0, uk_1 1
+        assert isinstance(oldStmt, str) and oldStmt, oldStmt
+        assert isinstance(newStmt, str) and newStmt, newStmt
+        assert isinstance(uks, str) and uks, uks
+
+        uksd = dict(ukv.split() for ukv in uks.split(','))
         
+        contents = []
+        for l in CM.iread(self.preprocSrc):
+            l = l.strip()
+            if oldStmt in l:
+                l = newStmt
+                for uk in uksd:
+                    l = l.replace(uk, uksd[uk])
+                l = l + "// {} => {}".format(oldStmt, l)
+            contents.append(l)
+        contents = '\n'.join(contents)
+
+        repairSrc = "{}.wid{}.c".format(self.preprocSrc, self.wid)
+        CM.vwrite(repairSrc, contents)
+        CM.vcmd("astyle -Y {}".format(repairSrc))
+        
+        print repairSrc
+        return repairSrc
+
+    
     def run(self):
-        r = self.transform()
-        assert len(r) == 3
-        src, oldStmt, newStmt = r
+        rs = self.transform()
+        assert len(rs) == 3
+        src, oldStmt, newStmt = rs
 
         if src : #transform success
-            r = self.klee(src)
-            if r:
-                return "{}: {} ===> {} ===> {}".format(src, oldStmt, newStmt, r)
+            uks = self.klee(src)
+            if uks:                
+                print "{}: {} ===> {} ===> {}".format(src, oldStmt, newStmt, uks)
+                repairSrc = self.repair(oldStmt, newStmt, uks)
+                return repairSrc
+            
         return None
 
 
     @classmethod
-    def wprocess(cls, wid, src, inpsFile, tasks, V, Q):
+    def wprocess(cls, wid, src, preprocSrc, inpsFile, tasks, V, Q):
         assert wid >= 0, wid
         assert tasks, tasks
         rs = []
 
         tasks = sorted(tasks,
                        key=lambda(sid, cid, myid, mylist): (cid, len(mylist)))
-        print 'mytasks', tasks
+
         #break after finding a fix
         #noparallel
         #for src, sids, cid, idxs in tasks:
 
         if not Q: #no parallel
             for sid, cid, myid, idxs in tasks:
-                w = cls(wid, src, inpsFile, sid, cid, myid, idxs)
+                w = cls(wid, src, preprocSrc, inpsFile, sid, cid, myid, idxs)
                 r = w.run()
                 if r: 
                     logger.debug("worker {}: sol found, break !".format(wid))
-                    print r
                     rs.append(r)
                     break
-            return rs
+
+        return rs
 
 
 def start(src):
@@ -337,7 +370,7 @@ def start(src):
     tasks = createTasks(clist)
     logger.debug("tasks {}".format(len(tasks)))
 
-    Worker.wprocess(0, astFile, inpsFile, tasks,V=None,Q=None)
+    Worker.wprocess(0, astFile, preprocSrc, inpsFile, tasks,V=None,Q=None)
     
     return tmpdir
 
