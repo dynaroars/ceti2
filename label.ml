@@ -5,20 +5,28 @@ module H = Hashtbl
 module P = Printf	     
 module L = List
 module CM = Common	     
-	      
-class labelVisitor
-	(sid:int) =  
+
+module SS =
+  Set.Make(struct
+	    type t = CM.sid_t
+	    let compare = Pervasives.compare
+	  end)
+	  
+class labelVisitor (sids:SS.t) =  
 object
   inherit nopCilVisitor
   method vstmt (s:stmt) =
     let action (s:stmt): stmt =
-      if s.sid = sid then (
-	s.labels <- [Label("suspstmt" ^ (string_of_int s.sid), !currentLoc, false)]
+      if SS.mem s.sid sids then (
+	s.labels <- [Label("repairStmt" ^ (string_of_int s.sid), !currentLoc, false)]
       ); s
     in
     ChangeDoChildrenPost(s, action)
   end
 
+
+	  
+	  
 
 (* main *)
 (*Example:  ./label.exe /var/tmp/CETI2_XhtAbh/MedianBad1.c.ast 13 /var/tmp/CETI2_XhtAbh/MedianBad1.label.s13.c
@@ -31,13 +39,12 @@ let () = begin
     Cil.useLogicalOperators := true;
     
     let astFile:string = Sys.argv.(1) in
-    let sid:CM.sid_t = int_of_string Sys.argv.(2) in
-    let labelSrc:string = Sys.argv.(3) in 
-
-    let ast, mainFd'', mainQFd'', correctQFd'', stmtHt = CM.read_file_bin astFile in
-
-    visitCilFileSameGlobals ((new labelVisitor) sid) ast;
+    let sids:CM.sid_t list = L.map int_of_string (CM.str_split Sys.argv.(2)) in
+    let labelSrc:string = Sys.argv.(3) in
     
-    E.log "Add label to stmt %d\n" sid;
+    let ast, mainFd'', mainQFd'', correctQFd'', stmtHt = CM.read_file_bin astFile in
+    let sids:SS.t = List.fold_right SS.add sids SS.empty in
+    visitCilFileSameGlobals ((new labelVisitor) sids) ast;
+    P.printf "Add labels to %d stmt\n" (SS.cardinal sids);
     CM.writeSrc labelSrc ast
 end

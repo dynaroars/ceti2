@@ -35,7 +35,8 @@ if __name__ == "__main__":
     
     #Run it
     st = time()
-    alg.start(args.badSrc)
+    repair = alg.Repair(args.badSrc)
+    repair.start()
     logger.info("time {}s".format(time() - st))
     
 

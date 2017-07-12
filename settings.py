@@ -5,6 +5,6 @@ timeout = 3
 mainQ="mainQ"
 correctQ="correctQ"
 maxV = 1000
-topN = 10
+topN = 3
 topSScore = 0.5
 tplLevel = 4 #use only templates with id <= level

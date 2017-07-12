@@ -1,7 +1,7 @@
 import logging
 import os.path
 import subprocess as sp
-
+import shutil
 import settings
 import common as CM
 logger = CM.getLogger(__name__, settings.loggingLevel)
@@ -97,14 +97,14 @@ class SRun(object):
     
 
 class Worker(object):
-    def __init__(self, wid, src, preprocSrc, inpsFile, sid, cid, myid, idxs):
+    def __init__(self, wid, src, labelSrc, inpsFile, sid, cid, myid, idxs):
         assert wid >= 0, wid
         assert isinstance(src, str) and os.path.isfile(src), src
-        assert isinstance(preprocSrc, str) and os.path.isfile(preprocSrc), src
+        assert isinstance(labelSrc, str) and os.path.isfile(labelSrc), src
         
         self.wid = wid
         self.src = src
-        self.preprocSrc = preprocSrc
+        
         self.inpsFile = inpsFile
         self.sid = sid
         self.cid = cid #template id
@@ -112,6 +112,8 @@ class Worker(object):
         self.idxs = idxs
 
         self.sidxs = " ".join(map(str,idxs))
+        self.labelSrc = labelSrc
+
 
     def transform(self):
         #call ocaml prog to transform file
@@ -222,20 +224,22 @@ class Worker(object):
         assert isinstance(newStmt, str) and newStmt, newStmt
         assert isinstance(uks, str) and uks, uks
 
+
         uksd = dict(ukv.split() for ukv in uks.split(','))
-        
+        label = "repairStmt{}:".format(self.sid)
+        print self.labelSrc
         contents = []
-        for l in CM.iread(self.preprocSrc):
+        for l in CM.iread(self.labelSrc):
             l = l.strip()
-            if oldStmt in l:
+            if contents and label in contents[-1]:
+                assert oldStmt in l
                 l = newStmt
                 for uk in uksd:
                     l = l.replace(uk, uksd[uk])
-                l = l + "// {} => {}".format(oldStmt, l)
+                l = l + "// was: {}".format(oldStmt)
             contents.append(l)
         contents = '\n'.join(contents)
-
-        repairSrc = "{}.wid{}.c".format(self.preprocSrc, self.wid)
+        repairSrc = "{}_repair_{}_{}_{}_{}.c".format(self.labelSrc,self.wid,self.cid,self.myid,self.sidxs)
         CM.vwrite(repairSrc, contents)
         CM.vcmd("astyle -Y {}".format(repairSrc))
         
@@ -259,7 +263,7 @@ class Worker(object):
 
 
     @classmethod
-    def wprocess(cls, wid, src, preprocSrc, inpsFile, tasks, V, Q):
+    def wprocess(cls, wid, src, labelSrc, inpsFile, tasks, V, Q):
         assert wid >= 0, wid
         assert tasks, tasks
         rs = []
@@ -273,7 +277,7 @@ class Worker(object):
 
         if not Q: #no parallel
             for sid, cid, myid, idxs in tasks:
-                w = cls(wid, src, preprocSrc, inpsFile, sid, cid, myid, idxs)
+                w = cls(wid, src, labelSrc, inpsFile, sid, cid, myid, idxs)
                 r = w.run()
                 if r: 
                     logger.debug("worker {}: sol found, break !".format(wid))
@@ -283,136 +287,171 @@ class Worker(object):
         return rs
 
 
-def start(src):
-    assert os.path.isfile(src), src
-    assert CM.isCompile(src), src
+class Repair(object):
+    def __init__(self, src):
+        assert os.path.isfile(src), src
+        assert CM.isCompile(src), src
+        
+        self.src = src
+        
+        import tempfile
+        self.tmpdir = tempfile.mkdtemp(dir=settings.tmpdir, prefix="CETI2_")
 
-    logger.info("analyzing {}".format(src))
+        self.mysrc = os.path.join(self.tmpdir, os.path.basename(self.src))
+        shutil.copyfile(self.src, self.mysrc)
+        assert os.path.isfile(self.mysrc), self.mysrc
 
-    import tempfile
-    tmpdir = tempfile.mkdtemp(dir=settings.tmpdir, prefix="CETI2_")
+    def preproc(self):
+        logger.info("preproc and save ast: {}".format(self.mysrc))
+        preprocSrc = "{}.preproc.c".format(self.mysrc)  #/a.preproc.c
+        astFile = "{}.ast".format(self.mysrc)   #/a.ast
 
-    import shutil
-    mysrc = os.path.join(tmpdir, os.path.basename(src))
-    shutil.copyfile(src, mysrc)
-    assert os.path.isfile(mysrc), mysrc
+        cmd = "./preproc.exe {} {} {} {} {}".format(
+            self.mysrc, settings.mainQ, settings.correctQ, preprocSrc, astFile)
+        logger.debug(cmd)
+
+        outMsg, errMsg = CM.vcmd(cmd)
+        assert not errMsg, errMsg
+        logger.debug(outMsg)    
+        assert os.path.isfile(preprocSrc), preprocSrc
+        assert os.path.isfile(astFile), astFile
+
+        return preprocSrc, astFile
+
+    def instr(self, astFile):
+        flSrc = "{}.fl.c".format(self.mysrc)
+        logger.info("get good/bad inps: {}".format(flSrc))
+        cmd = "./instr.exe {} {} {}".format(flSrc, astFile, settings.maxV)
+        logger.debug(cmd)
+        outMsg, errMsg = CM.vcmd(cmd)
+        assert not errMsg, errMsg
+        logger.debug(outMsg)    
+        assert os.path.isfile(flSrc), flSrc
+        return flSrc
+
+    def getGBInps(self, flSrc):
+        #run klee to get good/bad inps
+        obj = SRun.compile(flSrc)
+        hs = str(hash(flSrc)).replace("-", "_")
+        outdir = os.path.join(self.tmpdir, hs)
+        proc = SRun.execKlee(obj, settings.timeout, outdir, opts = ["-no-output"])
+        outMsg, errMsg = proc.communicate()
+        assert not errMsg, errMsg
+
+        goodInps, badInps = SRun.parseGBInps(outMsg)
+
+        #write inps to files   #good.inps , bad.inps
+        def _f(inps, s):
+            contents = "\n".join(map(lambda s: " ".join(map(str, s)), inps))
+            inpsFile = os.path.join(self.tmpdir, "{}.inps".format(s))
+            CM.vwrite(inpsFile, contents)
+            logger.debug("write: {}".format(inpsFile))
+            return inpsFile 
+
+        inpsFile = _f(list(goodInps) + list(badInps), "allInps")
+        return goodInps, badInps, inpsFile
+
+    def cov(self, astFile):
+        """
+        Create file with cov info (i.e., printf stmts)
+        """
+        covSrc = "{}.cov.c".format(self.mysrc)
+        logger.info("fault localization: {}".format(covSrc))
+        cmd = "./coverage.exe {} {}".format(covSrc, astFile)        
+        logger.debug(cmd)
+        outMsg, errMsg = CM.vcmd(cmd)
+        assert not errMsg, errMsg
+        logger.debug(outMsg)    
+        assert os.path.isfile(covSrc), covSrc
+        return covSrc
+
+    def spy(self, astFile, sids):
+        ssids ='"{}"'.format(" ".join(map(str, sids)))
+        cmd = "./spy.exe {} {} {} {}".format(
+            astFile, ssids, settings.tplLevel, settings.maxV)
+        logger.debug(cmd)
+        outMsg, errMsg = CM.vcmd(cmd)
+        logger.debug(errMsg)
+        logger.debug(outMsg)
+
+        clist = outMsg.split('\n')[-1]
+        clist = [c.strip() for c in clist.split(";")]
+        clist = [c[1:][:-1] for c in clist] #remove ( )
+        clist = [map(int, c.split(',')) for c in clist]
+        
+        tasks = []
+        for sid, cid, n in clist:
+            rs = self.getData(cid, n)
+            rs = [(sid, cid) + r for r in rs]
+            tasks.extend(rs)
+
+        from random import shuffle
+        shuffle(tasks)
+        logger.debug("tasks {}".format(len(tasks)))
+        return tasks
+
+    def label(self, astFile, sids):
+        
+        ssids ='"{}"'.format(" ".join(map(str, sids)))
+        labelSrc = "{}.label.c".format(self.mysrc)
+
+        logger.info("create labels for {} sids {}: {}".format(len(sids), ssids, labelSrc))
+        cmd = "./label.exe {} {} {}".format(astFile, ssids, labelSrc)
+        logger.debug(cmd)
+        outMsg, errMsg = CM.vcmd(cmd)
+        assert not errMsg, errMsg
+        assert os.path.isfile(labelSrc), labelSrc
+        return labelSrc
     
-    logger.info("preproc and save ast: {}".format(mysrc))
-    preprocSrc = "{}.preproc.c".format(mysrc)
-    astFile = "{}.ast".format(mysrc)
+    def start(self):
+        logger.info("analyzing {}".format(self.src))
+        preprocSrc, astFile = self.preproc()
+        flSrc = self.instr(astFile)
+        goodInps, badInps, inpsFile = self.getGBInps(flSrc)
+        
+        covSrc = self.cov(astFile)
+        suspStmts = faultloc.analyze(
+            covSrc, goodInps, badInps, settings.faultlocAlg, self.tmpdir)
+        sids = [sid for sid, _ in suspStmts.most_common(settings.topN)]
+        labelSrc = self.label(astFile, sids)        
+        tasks = self.spy(astFile, sids)
 
-    cmd = "./preproc.exe {} {} {} {} {}".format(
-        mysrc, settings.mainQ, settings.correctQ, preprocSrc, astFile)
-    logger.debug(cmd)
-    
-    outMsg, errMsg = CM.vcmd(cmd)
-    assert not errMsg, errMsg
-    logger.debug(outMsg)    
-    assert os.path.isfile(preprocSrc), preprocSrc
-    assert os.path.isfile(astFile), astFile
+        
+        Worker.wprocess(0, astFile, labelSrc, inpsFile, tasks,V=None,Q=None)
+        
 
-    logger.info("get good/bad inps")
-    flSrc = "{}.fl.c".format(mysrc)
-    cmd = "./instr.exe {} {} {}".format(flSrc, astFile, settings.maxV)
-    logger.debug(cmd)
-    outMsg, errMsg = CM.vcmd(cmd)
-    assert not errMsg, errMsg
-    logger.debug(outMsg)    
-    assert os.path.isfile(flSrc), flSrc
-    
-    obj = SRun.compile(flSrc)
-    hs = str(hash(flSrc)).replace("-", "_")
-    outdir = os.path.join(tmpdir, hs)
-    proc = SRun.execKlee(obj, settings.timeout, outdir, opts = ["-no-output"])
-    outMsg, errMsg = proc.communicate()
-    assert not errMsg, errMsg
-
-    goodInps, badInps = SRun.parseGBInps(outMsg)
-    
-    #write inps to files
-    def _f(inps, s):
-        contents = "\n".join(map(lambda s: " ".join(map(str, s)), inps))
-        inpsFile = os.path.join(tmpdir, "{}.inps".format(s))
-        CM.vwrite(inpsFile, contents)
-        logger.debug("write: {}".format(inpsFile))
-        return inpsFile 
-    _ = _f(goodInps, "good")
-    _ = _f(badInps, "bad")
-
-    inpsFile = _f(list(goodInps) + list(badInps), "allInps")
-    
-    logger.info("fault localization")
-    #use statistical debugging to find susp stmts
-    covSrc = "{}.cov.c".format(mysrc)
-    cmd = "./coverage.exe {} {}".format(covSrc, astFile)
-    logger.debug(cmd)
-    outMsg, errMsg = CM.vcmd(cmd)
-    assert not errMsg, errMsg
-    logger.debug(outMsg)    
-    assert os.path.isfile(covSrc), covSrc
-
-    suspStmts = faultloc.analyze(
-        covSrc, goodInps, badInps, settings.faultlocAlg, tmpdir)
-
-    sids = [sid for sid, _ in suspStmts.most_common(3)]
-    ssids ='"{}"'.format(" ".join(map(str, sids)))
-    cmd = "./spy.exe {} {} {} {}".format(
-        astFile, ssids, settings.tplLevel, settings.maxV)
-    logger.debug(cmd)
-    outMsg, errMsg = CM.vcmd(cmd)
-    logger.debug(errMsg)
-    logger.debug(outMsg)    
-
-    clist = outMsg.split('\n')[-1]
-    clist = [c.strip() for c in clist.split(";")]
-    clist = [c[1:][:-1] for c in clist] #remove ( )
-    clist = [map(int, c.split(',')) for c in clist] 
-    tasks = createTasks(clist)
-    logger.debug("tasks {}".format(len(tasks)))
-
-    Worker.wprocess(0, astFile, preprocSrc, inpsFile, tasks,V=None,Q=None)
-    
-    return tmpdir
+        return self.tmpdir
 
 
-def createTasks(clist):
-    tasks = []
-    for sid, cid, n in clist:
-        rs = getData(cid, n)
-        rs = [(sid, cid) + r for r in rs]
-        tasks.extend(rs)
 
-    from random import shuffle
-    shuffle(tasks)
-    return tasks
+    CID_CONSTS = 1
+    CID_OPS_PR = 2
+    CID_VS = 3
 
+    @classmethod
+    def getData(cls, cid, n):
+        "return [myid, mylist]"
+        import itertools
+        rs = []
 
-CID_CONSTS = 1
-CID_OPS_PR = 2
-CID_VS = 3
-def getData(cid, n):
-    "return [myid, mylist]"
-    import itertools
-    rs = []
+        #n consts
+        if cid == cls.CID_CONSTS:
+            rs.append((0, [n]))
+        elif cid == cls.CID_OPS_PR:
+            for i in range(n):
+                rs.append((i, [i+1]))
+        #n vars
+        elif cid == cls.CID_VS:
+            maxCombSiz = 2
+            for siz in range(maxCombSiz + 1):
+                cs = itertools.combinations(range(n), siz)
+                for i,c in enumerate(cs):
+                    rs.append((i, list(c)))
 
-    #n consts
-    if cid == CID_CONSTS:
-        rs.append((0, [n]))
-    elif cid == CID_OPS_PR:
-        for i in range(n):
-            rs.append((i, [i+1]))
-    #n vars
-    elif cid == CID_VS:
-        maxCombSiz = 2
-        for siz in range(maxCombSiz + 1):
-            cs = itertools.combinations(range(n), siz)
-            for i,c in enumerate(cs):
-                rs.append((i, list(c)))
-                
-    else:
-        raise AssertionError("unknown CID {}".format(cid))
-    
-    return rs
+        else:
+            raise AssertionError("unknown CID {}".format(cid))
+
+        return rs
     
 #print goodInps
 #print badInps

@@ -5,46 +5,6 @@ module P = Printf
 module L = List
 module CM = Common	     
 				      
-(*
-  walks over AST and preceeds each stmt with a printf that writes out its sid
-  create a stmt consisting of 2 Call instructions
-  fprintf "_coverage_fout, sid"; 
-  fflush();
- *)
-      
-class coverageVisitor = object(self)
-  inherit nopCilVisitor
-
-  method private create_fprintf_stmt (sid : CM.sid_t) :stmt = 
-    let str = P.sprintf "%d\n" sid in
-    let stderrVi = CM.mkVi ~ftype:(TPtr(TVoid [], [])) "_coverage_fout" in
-    let stderr = CM.expOfVi stderrVi in
-    let instr1 = CM.mkCall "fprintf" [stderr; Const (CStr(str))] in 
-    let instr2 = CM.mkCall "fflush" [stderr] in
-    mkStmt (Instr([instr1; instr2]))
-    
-  method vblock b = 
-    let action (b: block) :block= 
-      let insert_printf (s: stmt): stmt list = 
-	if s.sid > 0 then [self#create_fprintf_stmt s.sid; s]
-	else [s]
-      in
-      let stmts = L.map insert_printf b.bstmts in 
-      {b with bstmts = L.flatten stmts}
-    in
-    ChangeDoChildrenPost(b, action)
-      
-  method vfunc f = 
-    let action (f: fundec) :fundec = 
-      (*print 0 when entering main so we know it's a new run*)
-      if f.svar.vname = "main" then (
-	f.sbody.bstmts <- self#create_fprintf_stmt 0 :: f.sbody.bstmts
-      );
-      f
-    in
-    ChangeDoChildrenPost(f, action)
-end
-
 let mkMain mainFd mainQFd maxV =
   let uks = L.mapi(fun i vi ->
 		  let v, i = CM.mkUk i vi.vtype (-1*maxV) maxV mainFd in 
