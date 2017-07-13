@@ -12,7 +12,8 @@ class SRun(object):
 
     @staticmethod
     def compile(src):
-        assert os.path.isfile(src), src    
+        assert os.path.isfile(src), src
+        
         #compile file with llvm                        
         includePath = os.path.join(os.path.expandvars("$KLEE"), "klee/include")
         clangOpts =  "-emit-llvm -c"
@@ -166,7 +167,7 @@ class Worker(object):
 
         timeout = 10
         outdir = "{}-klee-out".format(obj)
-        assert not os.path.exists(outdir) #shutil.rmtree(outdir)
+        if os.path.exists(outdir): shutil.rmtree(outdir)
         proc = SRun.execKlee(obj, timeout, outdir)
 
         ignores_done = ['KLEE: done: total instructions',
@@ -226,7 +227,6 @@ class Worker(object):
 
         uksd = dict(ukv.split() for ukv in uks.split(','))
         label = "repairStmt{}:".format(self.sid)
-        print self.labelSrc
         contents = []
         for l in CM.iread(self.labelSrc):
             l = l.strip()
@@ -237,12 +237,11 @@ class Worker(object):
                     l = l.replace(uk, uksd[uk])
                 l = l + "// was: {}".format(oldStmt)
             contents.append(l)
-        contents = '\n'.join(contents)
-        repairSrc = "{}_repair_{}_{}_{}_{}.c".format(self.labelSrc,self.wid,self.cid,self.myid,self.sidxs)
+        contents = '\n'.join(contents)        
+        repairSrc = "{}_repair_{}_{}_{}_{}.c".format(
+            self.labelSrc, self.wid, self.cid, self.myid, "_".join(map(str, self.idxs)))
         CM.vwrite(repairSrc, contents)
         CM.vcmd("astyle -Y {}".format(repairSrc))
-        
-        print repairSrc
         return repairSrc
 
     
@@ -282,13 +281,68 @@ class Worker(object):
                     rs.append(r)
                     break
 
-        rs = [r for r in rs if r] #remove None
-        return rs
+            return rs
+        else:
+            for sid, cid, myid, idxs in tasks:
+                if V.value > 0:
+                    logger.debug("worker {}: sol found, break !".format(wid))
+                    break
+                else:
+                    w = cls(wid, src, labelSrc, inpsFile, sid, cid, myid, idxs)
+                    r = w.run()
+                    if r: 
+                        logger.debug("worker {}: sol found, break !".format(wid))
+                        rs.append(r)
+                        V.value = V.value + 1
 
+            Q.put(rs)
+            return None
 
 class Repair(object):
-    @classmethod
-    def preproc(cls, src):
+    def __init__(self, src):
+
+        import tempfile
+        self.tmpdir = tempfile.mkdtemp(dir=settings.tmpdir, prefix="CETI2_")
+
+        tsrc = os.path.join(self.tmpdir, os.path.basename(src))
+        shutil.copyfile(src, tsrc)
+        assert os.path.isfile(tsrc), mysrc
+
+        self.src = tsrc
+        
+
+    def start(self):
+        #orig stuff
+        origSrc = self.src
+        origAstFile, goodInps, badInps = self.check(origSrc)
+        if not badInps:
+            logger.info("no bad tests: {} seems correct!".format(origAstFile))
+            return
+        
+        candSrc = origSrc
+        currIter = 0
+        while True:
+            currIter += 1
+            suspStmts = self.getSuspStmts(origSrc, origAstFile, settings.topN, goodInps, badInps)
+            assert suspStmts
+
+            candSrcs = self.repair(origSrc, origAstFile, suspStmts, goodInps, badInps)
+            if not candSrcs:
+                logger.info("no repair found. Stop!")
+                break
+
+            logger.info("*** iter {}, candidates {}, goods {}, bads {}"
+                        .format(currIter, len(candSrcs), len(goodInps), len(badInps)))
+            repairSrc = self.mcheck(candSrcs, goodInps, badInps)
+            if repairSrc:
+                logger.info("{} seems correct!".format(repairSrc))
+                break
+            
+            
+        logger.info("Iters: {}".format(currIter))
+
+    ### CHECK ###
+    def preproc(self, src):
         logger.info("preproc and save ast: {}".format(src))
         preprocSrc = "{}.preproc.c".format(src)  #/a.preproc.c
         astFile = "{}.ast".format(src)   #/a.ast
@@ -305,8 +359,7 @@ class Repair(object):
 
         return preprocSrc, astFile
 
-    @classmethod
-    def instr(cls, src, astFile):
+    def instr(self, src, astFile):
         flSrc = "{}.fl.c".format(src)
         logger.info("get good/bad inps: {}".format(flSrc))
         cmd = "./instr.exe {} {} {}".format(flSrc, astFile, settings.maxV)
@@ -317,23 +370,55 @@ class Repair(object):
         assert os.path.isfile(flSrc), flSrc
         return flSrc
 
-    @classmethod
-    def getGBInps(cls, flSrc, tmpdir):
+    def getGBInps(self, flSrc):
+        
         #run klee to get good/bad inps
         obj = SRun.compile(flSrc)
         hs = str(hash(flSrc)).replace("-", "_")
-        outdir = os.path.join(tmpdir, hs)
+        outdir = os.path.join(self.tmpdir, hs)
         proc = SRun.execKlee(obj, settings.timeout, outdir, opts = ["-no-output"])
         outMsg, errMsg = proc.communicate()
         assert not errMsg, errMsg
 
         goodInps, badInps = SRun.parseGBInps(outMsg)
-
-
         return goodInps, badInps
+    
+    def check(self, src):
+        """
+        Return good and bad inps.
+        if not bad inps then program passes, otherwise program fails
+        """
+        logger.info("check {}".format(src))
+        _, astFile = self.preproc(src)
+        flSrc = self.instr(src, astFile)
+        goodInps, badInps = self.getGBInps(flSrc)
+        
+        return astFile, goodInps, badInps
 
-    @classmethod
-    def cov(cls, src, astFile):
+    def mcheck(self, srcs, goodInps, badInps):
+        for src in srcs:
+            _, goodInps_, badInps_ = self.check(src)
+            if not badInps_:
+                logger.info("no bad tests: {} seems correct!".format(src))
+                return src
+            else:
+                for inp in goodInps_: goodInps.add(inp)
+                for inp in badInps_: badInps.add(inp)  #block invalid candidates
+
+
+        return None
+            
+            
+    ### Fault Loc ###
+    def getSuspStmts(self, src, astFile, n, goodInps, badInps):
+        covSrc = self.cov(src, astFile)
+        suspStmts = faultloc.analyze(
+            covSrc, goodInps, badInps, settings.faultlocAlg, self.tmpdir)
+        suspStmts = [sid for sid, _ in suspStmts.most_common(n)]
+        return suspStmts
+
+    
+    def cov(self, src, astFile):
         """
         Create file with cov info (i.e., printf stmts)
         """
@@ -347,8 +432,60 @@ class Repair(object):
         assert os.path.isfile(covSrc), covSrc
         return covSrc
 
-    @classmethod
-    def spy(cls, astFile, sids):
+
+    ### Repair ###
+    def repair(self, src, astFile, suspStmts, goodInps, badInps, doParallel=True):
+        labelSrc = self.label(src, astFile, suspStmts)        
+        tasks = self.spy(astFile, suspStmts)
+        
+        #write inps to files   #good.inps , bad.inps
+        def _f(inps, s):
+            contents = "\n".join(map(lambda s: " ".join(map(str, s)), inps))
+            inpsFile = os.path.join(self.tmpdir, "{}.inps".format(s))
+            CM.vwrite(inpsFile, contents)
+            logger.debug("write: {}".format(inpsFile))
+            return inpsFile 
+
+        inpsFile = _f(list(goodInps) + list(badInps), "allInps")
+
+        if doParallel:
+            from multiprocessing import (Process, Queue, Value,
+                                         current_process, cpu_count)
+            Q = Queue()
+            V = Value("i",0)
+
+            workloads = CM.getWorkloads(tasks, max_nprocesses=cpu_count(), chunksiz=2)
+            logger.info("workloads {}: {}".format(len(workloads), map(len,workloads)))
+
+            workers = [Process(target=Worker.wprocess, #args=(i, wl,no_stop, no_bugfix, V, Q))
+                               args=(i, astFile, labelSrc, inpsFile, wl, V, Q))
+                       for i,wl in enumerate(workloads)]
+
+            for w in workers: w.start()
+            wrs = []
+            for i,_ in enumerate(workers):
+                wrs.extend(Q.get())            
+        else:
+            wrs = Worker.wprocess(0, astFile, labelSrc, inpsFile, tasks, V=None,Q=None)
+
+        repairSrcs = [r for r in wrs if r]
+        logger.info("found {} candidate sols".format(len(repairSrcs)))
+        return repairSrcs
+    
+    def label(self, src, astFile, sids):
+        
+        ssids ='"{}"'.format(" ".join(map(str, sids)))
+        labelSrc = "{}.label.c".format(src)
+
+        logger.info("labels for {} susp sids {}: {}".format(len(sids), ssids, labelSrc))
+        cmd = "./label.exe {} {} {}".format(astFile, ssids, labelSrc)
+        logger.debug(cmd)
+        outMsg, errMsg = CM.vcmd(cmd)
+        assert not errMsg, errMsg
+        assert os.path.isfile(labelSrc), labelSrc
+        return labelSrc    
+
+    def spy(self, astFile, sids):
         ssids ='"{}"'.format(" ".join(map(str, sids)))
         cmd = "./spy.exe {} {} {} {}".format(
             astFile, ssids, settings.tplLevel, settings.maxV)
@@ -364,7 +501,7 @@ class Repair(object):
         
         tasks = []
         for sid, cid, n in clist:
-            rs = cls.getData(cid, n)
+            rs = self.getData(cid, n)
             rs = [(sid, cid) + r for r in rs]
             tasks.extend(rs)
 
@@ -372,92 +509,6 @@ class Repair(object):
         shuffle(tasks)
         logger.debug("tasks {}".format(len(tasks)))
         return tasks
-
-    @classmethod
-    def label(cls, src, astFile, sids):
-        
-        ssids ='"{}"'.format(" ".join(map(str, sids)))
-        labelSrc = "{}.label.c".format(src)
-
-        logger.info("create labels for {} sids {}: {}".format(len(sids), ssids, labelSrc))
-        cmd = "./label.exe {} {} {}".format(astFile, ssids, labelSrc)
-        logger.debug(cmd)
-        outMsg, errMsg = CM.vcmd(cmd)
-        assert not errMsg, errMsg
-        assert os.path.isfile(labelSrc), labelSrc
-        return labelSrc
-
-    @classmethod
-    def check(cls, src, tmpdir):
-        """
-        Return good and bad inps.
-        if not bad inps then program passes, otherwise program fails
-        """
-        logger.info("check {}".format(src))
-        _, astFile = cls.preproc(src)
-        flSrc = cls.instr(src, astFile)
-        goodInps, badInps = cls.getGBInps(flSrc, tmpdir)
-        return astFile, goodInps, badInps
-
-    @classmethod
-    def getSuspStmts(cls, src, astFile, n, goodInps, badInps, tmpdir):
-        covSrc = cls.cov(src, astFile)
-        suspStmts = faultloc.analyze(
-            covSrc, goodInps, badInps, settings.faultlocAlg, tmpdir)
-        suspStmts = [sid for sid, _ in suspStmts.most_common(n)]
-        return suspStmts
-
-    @classmethod
-    def repair(cls, src, astFile, suspStmts, goodInps, badInps, tmpdir):        
-        labelSrc = cls.label(src, astFile, suspStmts)        
-        tasks = cls.spy(astFile, suspStmts)
-
-        #write inps to files   #good.inps , bad.inps
-        def _f(inps, s):
-            contents = "\n".join(map(lambda s: " ".join(map(str, s)), inps))
-            inpsFile = os.path.join(tmpdir, "{}.inps".format(s))
-            CM.vwrite(inpsFile, contents)
-            logger.debug("write: {}".format(inpsFile))
-            return inpsFile 
-
-        inpsFile = _f(list(goodInps) + list(badInps), "allInps")
-        
-        rs = Worker.wprocess(0, astFile, labelSrc, inpsFile, tasks,V=None,Q=None)
-        if len(rs) >= 1:
-            repairSrc = rs[0]
-        else:
-            repairSrc = None
-            
-        return repairSrc
-
-    @classmethod
-    def start(cls, src):
-
-        import tempfile
-        tmpdir = tempfile.mkdtemp(dir=settings.tmpdir, prefix="CETI2_")
-
-        tsrc = os.path.join(tmpdir, os.path.basename(src))
-        shutil.copyfile(src, tsrc)
-        assert os.path.isfile(tsrc), mysrc
-        src = tsrc
-        
-        currSrc = src
-        while True:
-            astFile, goodInps, badInps = cls.check(currSrc, tmpdir)
-            if not badInps:
-                logger.info("no bad tests. Program seems correct!")
-                break
-
-            suspStmts = cls.getSuspStmts(currSrc, astFile, settings.topN, goodInps, badInps, tmpdir)
-            assert suspStmts
-
-            currSrc = cls.repair(currSrc, astFile, suspStmts, goodInps, badInps, tmpdir)
-            if not currSrc:
-                logger.info("no repair found. Stopp!")
-                break
-            
-        return tmpdir
-
 
 
     CID_CONSTS = 1
@@ -488,9 +539,4 @@ class Repair(object):
             raise AssertionError("unknown CID {}".format(cid))
 
         return rs
-    
-#print goodInps
-#print badInps
-# goodInps = set([(3,3,5), (1,2,3), (3,2,1), (5,5,5), (5, 3 ,4)])
-# badInps = set([(2,1,3)])
     

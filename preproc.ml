@@ -64,20 +64,18 @@ let () = begin
 
     let ast = Frontc.parse src () in
 
-    (*save orig file*)
-    (* let origSrc = src ^ ".cil.c"in *)
-    (* CM.writeSrc origSrc ast; *)
-
     visitCilFileSameGlobals (new CM.everyVisitor) ast;
     visitCilFileSameGlobals (new CM.breakCondVisitor :> cilVisitor) ast;
-
-    (*add stmt id*)
-    let stmtHt = H.create 1024 in
-    visitCilFileSameGlobals (new CM.numVisitor stmtHt :> cilVisitor) ast;
-
+    
     let mainFd:fundec = CM.findFun ast "main" in
     let mainQFd:fundec = CM.findFun ast mainQName in
     let correctQFd:fundec = CM.findFun ast correctQName in    
+
+    let ignoreFuns:CM.SS.t =
+      L.fold_right CM.SS.add ["main"; mainQName; correctQName] CM.SS.empty in 
+    (*add stmt id*)
+    let stmtHt = H.create 1024 in
+    visitCilFileSameGlobals (new CM.numVisitor stmtHt ignoreFuns :> cilVisitor) ast;
 
     CM.writeSrc preprocSrc ast;
     CM.write_file_bin astFile (ast, mainFd, mainQFd, correctQFd, stmtHt)

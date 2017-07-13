@@ -4,6 +4,7 @@ module H = Hashtbl
 module P = Printf
 module L = List
 
+module SS = Set.Make(String)
 
 let string_of_typ (s:typ) = Pretty.sprint ~width:80 (dn_type () s)
 let string_of_stmt (s:stmt) = Pretty.sprint ~width:80 (dn_stmt () s) 
@@ -69,27 +70,31 @@ let read_file_ascii ?(keep_empty=true) (filename:string) :string list =
 (* Visitors *)
 
 (** Stmts that can be tracked for fault loc and modified for bug fix **)
-let can_modify : stmtkind -> bool = function 
+let canModify : stmtkind -> bool = function 
   |Instr[Set(_)] -> true
   |_ -> false
-	  
-class numVisitor ht  = object(self)
+	   
+class numVisitor ht (ignoreFuns:SS.t) = object(self)
   inherit nopCilVisitor
 
   val mutable mctr = 1
-  val mutable cur_fd = None
+  val mutable curFd = None
 
-  method vfunc f = cur_fd <- (Some f); DoChildren
+  method vfunc f = curFd <- (Some f); DoChildren
 
   method vblock b = 
     let action (b: block) : block= 
-      let change_sid (s: stmt) : unit = 
-	if can_modify s.skind then (
-	  s.sid <- mctr;
-	  let fd = match cur_fd with 
-	    | Some f -> f | None -> E.s(E.error "not in a function") in
-	  H.add ht mctr (s, fd);
-	  mctr <- succ mctr
+      let change_sid (s: stmt) : unit =
+	if canModify s.skind then (
+	  match curFd with 
+	  | Some f -> (
+	    if not (SS.mem f.svar.vname ignoreFuns) then (
+		s.sid <- mctr;
+		H.add ht mctr (s, f);
+		mctr <- succ mctr
+	    )
+	  )
+	  | None -> E.s(E.error "not in a function")
 	)
 	else s.sid <- 0;  (*Anything not considered has sid 0 *)
       in 
@@ -120,11 +125,11 @@ end
 
 class breakCondVisitor = object(self)
   inherit nopCilVisitor
-  val mutable cur_fd = None
-  method vfunc f = cur_fd <- (Some f); DoChildren
+  val mutable curFd = None
+  method vfunc f = curFd <- (Some f); DoChildren
 
   method private mk_stmt s e loc: lval*stmt= 
-    let fd = match cur_fd with 
+    let fd = match curFd with 
       | Some f -> f | None -> E.s(E.error "not in a function") in
     let v:lval = var(makeTempVar fd (typeOf e)) in
     let i:instr = Set(v,e,loc) in

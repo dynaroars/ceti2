@@ -63,3 +63,47 @@ def getLogLevel(level):
         return logging.DEBUG
 
 
+
+
+
+#parallel
+def getWorkloads(tasks,max_nprocesses,chunksiz):
+    """
+    >>> wls = getWorkloads(range(12),7,1); wls
+    [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9], [10, 11]]
+
+
+    >>> wls = getWorkloads(range(12),5,2); wls
+    [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9, 10, 11]]
+
+    >>> wls = getWorkloads(range(20),7,2); wls
+    [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11], [12, 13, 14], [15, 16, 17], [18, 19]]
+
+
+    >>> wls = getWorkloads(range(20),20,2); wls
+    [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9], [10, 11], [12, 13], [14, 15], [16, 17], [18, 19]]
+    """
+
+    if __debug__:
+        assert len(tasks) >= 1, tasks
+        assert max_nprocesses >= 1, max_nprocesses
+        assert chunksiz >= 1, chunksiz
+
+    #determine # of processes
+    ntasks = len(tasks)
+    nprocesses = int(round(ntasks/float(chunksiz)))
+    if nprocesses > max_nprocesses:
+        nprocesses = max_nprocesses
+
+
+    #determine workloads 
+    cs = int(round(ntasks/float(nprocesses)))
+    workloads = []
+    for i in range(nprocesses):
+        s = i*cs
+        e = s+cs if i < nprocesses-1 else ntasks
+        wl = tasks[s:e]
+        if wl:  #could be 0, e.g., getWorkloads(range(12),7,1)
+            workloads.append(wl)
+
+    return workloads
