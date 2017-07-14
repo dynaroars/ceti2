@@ -11,23 +11,11 @@ int buggyQ(int in, int up, int down) {
      return r;
 }
 
-
-int correctQ(int in, int up, int down){
-     int bias, r;
-     if (in!=0)
-	  bias = up + 100;
-     else
-	  bias = up;
-     if (bias > down)
-	  r = 1;
-     else
-	  r = 0;
-     return r;     
+void correctQ(){
 }
-
 int mainQ(int x, int y, int z){
      int rb = buggyQ(x,y,z);
-     int rc = correctQ(x, y, z);
+     int rc = x*100 + y > z;
      
      if (rb == rc){
      	  printf("PASS (rb = rc = %d) with input: x %d, y %d, z %d\n",

@@ -9,9 +9,20 @@ logger = CM.getLogger(__name__, settings.loggingLevel)
 import faultloc
 
 class SRun(object):
-
     @staticmethod
     def compile(src):
+        assert os.path.isfile(src), src
+        exeFile = "{}.exe".format(src)
+        cmd =("clang {} -o {}".format(src, exeFile))
+        outMsg, errMsg = CM.vcmd(cmd)
+        assert "Error: " not in errMsg, errMsg
+        assert not outMsg, outMsg
+        assert os.path.isfile(exeFile)
+        
+        return exeFile
+    
+    @staticmethod
+    def compileKlee(src):
         assert os.path.isfile(src), src
         
         #compile file with llvm                        
@@ -157,15 +168,14 @@ class Worker(object):
         return rsFile, oldStmt, newStmt
 
     
-    def klee (self, src):
+    def klee(self, src):
         #compile transformed file and run run klee on it
         
         logger.debug("worker {}: run klee on {} ***".format(self.wid, src))
 
         #compile file with llvm
-        obj = SRun.compile(src)
-
-        timeout = 10
+        obj = SRun.compileKlee(src)
+        timeout = settings.timeout
         outdir = "{}-klee-out".format(obj)
         if os.path.exists(outdir): shutil.rmtree(outdir)
         proc = SRun.execKlee(obj, timeout, outdir)
@@ -239,7 +249,8 @@ class Worker(object):
             contents.append(l)
         contents = '\n'.join(contents)        
         repairSrc = "{}_repair_{}_{}_{}_{}.c".format(
-            self.labelSrc, self.wid, self.cid, self.myid, "_".join(map(str, self.idxs)))
+            self.labelSrc, self.wid, self.cid, self.myid,
+            "_".join(map(str, self.idxs)))
         CM.vwrite(repairSrc, contents)
         CM.vcmd("astyle -Y {}".format(repairSrc))
         return repairSrc
@@ -253,7 +264,8 @@ class Worker(object):
         if src : #transform success
             uks = self.klee(src)
             if uks:                
-                logger.debug("{}: {} ===> {} ===> {}".format(src, oldStmt, newStmt, uks))
+                logger.debug("{}: {} ===> {} ===> {}".format(
+                    src, oldStmt, newStmt, uks))
                 repairSrc = self.repair(oldStmt, newStmt, uks)
                 return repairSrc
             
@@ -314,7 +326,11 @@ class Repair(object):
         #orig stuff
         origSrc = self.src
         origAstFile, goodInps, badInps = self.check(origSrc)
+        print goodInps
+        print badInps
+        origExeFile = SRun.compile(origSrc)
         origCovSrc = self.cov(origSrc, origAstFile)
+
         if not badInps:
             logger.info("no bad tests: {} seems correct!".format(origSrc))
             return
@@ -323,9 +339,10 @@ class Repair(object):
         currIter = 0
         while True:
             currIter += 1
+            print len(goodInps), len(badInps)
             suspStmts = self.getSuspStmts(
                 origCovSrc, settings.topN, goodInps, badInps)
-            assert suspStmts
+            assert suspStmts, suspStmts
             inpsFile = self.writeInps(goodInps | badInps, "allInps")
             
             candSrcs = self.repair(origSrc, origAstFile, inpsFile, suspStmts)
@@ -336,10 +353,15 @@ class Repair(object):
             logger.info("*** iter {}, candidates {}, goods {}, bads {}"
                         .format(currIter, len(candSrcs),
                                 len(goodInps), len(badInps)))
-            repairSrc = self.mcheck(candSrcs, goodInps, badInps)
+            repairSrc, goods, bads = self.mcheck(candSrcs)
             if repairSrc:
                 logger.info("{} seems correct!".format(repairSrc))
                 break
+            goods, bads = self.checkGBInps(origExeFile, goods | bads)
+            if goods:
+                for inp in goods: goodInps.add(inp)
+            if bads:
+                for inp in bads: badInps.add(inp)            
 
         logger.info("iters: {}, repair found: {}"
                     .format(currIter, repairSrc is not None))
@@ -382,9 +404,8 @@ class Repair(object):
         return flSrc
 
     def getGBInps(self, flSrc):
-        
-        #run klee to get good/bad inps
-        obj = SRun.compile(flSrc)
+        "Get good/bad inps from KLEE"
+        obj = SRun.compileKlee(flSrc)
         hs = str(hash(flSrc)).replace("-", "_")
         outdir = os.path.join(self.tmpdir, hs)
         proc = SRun.execKlee(obj, settings.timeout, outdir, opts = ["-no-output"])
@@ -393,7 +414,24 @@ class Repair(object):
 
         goodInps, badInps = SRun.parseGBInps(outMsg)
         return goodInps, badInps
-    
+
+    def checkGBInps(self, exeFile, inps):
+        """
+        Determine which inp is good/bad wrt to src
+        """
+        def check(inp):
+            cmd = "{} {}".format(exeFile, ' '.join(map(str, inp)))
+            outMsg, errMsg = CM.vcmd(cmd)
+            assert not errMsg
+            return "PASS" in outMsg
+
+        goods, bads = set(), set()
+        for inp in inps:
+            if check(inp): goods.add(inp)
+            else: bads.add(inp)
+        return goods, bads
+
+        
     def check(self, src):
         """
         Return good and bad inps.
@@ -405,16 +443,16 @@ class Repair(object):
         goodInps, badInps = self.getGBInps(flSrc)
         return astFile, goodInps, badInps
 
-    def mcheck(self, srcs, goodInps, badInps):
+    def mcheck(self, srcs):
+        goodInps, badInps = set(), set()
         for src in srcs:
             _, goodInps_, badInps_ = self.check(src)
             if not badInps_:
-                logger.info("no bad tests: {} seems correct!".format(src))
-                return src
+                return src, None, None
             else:
                 for inp in goodInps_: goodInps.add(inp)
                 for inp in badInps_: badInps.add(inp)  #block invalid candidates
-        return None
+        return None, goodInps, badInps
             
             
     ### Fault Loc ###
@@ -499,8 +537,6 @@ class Repair(object):
         logger.debug("tasks {}".format(len(tasks)))
         
         return labelSrc, tasks
-
-
 
     @classmethod
     def getData(cls, cid, n):

@@ -1,7 +1,7 @@
 int buggyQ(int in, int up, int down) {
      int bias, r;
      if (in!=0)
-	  bias = up ;
+	  bias = up;
      else
 	  bias = up;
      if (bias > down)
@@ -13,16 +13,7 @@ int buggyQ(int in, int up, int down) {
 
 
 int correctQ(int in, int up, int down){
-     int bias, r;
-     if (in!=0)
-	  bias = up + 100;
-     else
-	  bias = up;
-     if (bias > down)
-	  r = 1;
-     else
-	  r = 0;
-     return r;     
+     return ((in==0 && up > down) || (in!=0 && up + 100 > down));
 }
 
 int mainQ(int x, int y, int z){
