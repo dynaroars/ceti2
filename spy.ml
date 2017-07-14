@@ -27,6 +27,26 @@ let spy
   |_ -> E.log "no info obtained on stmt %d\n%a" sid dn_stmt s; []
 
 
+module SS =
+  Set.Make(struct
+	    type t = CM.sid_t
+	    let compare = Pervasives.compare
+	  end)
+	  
+class labelVisitor (sids:SS.t) =  
+object
+  inherit nopCilVisitor
+  method vstmt (s:stmt) =
+    let action (s:stmt): stmt =
+      if SS.mem s.sid sids then (
+	s.labels <- [Label("repairStmt" ^ (string_of_int s.sid), !currentLoc, false)]
+      ); s
+    in
+    ChangeDoChildrenPost(s, action)
+  end
+
+								 
+
 (* main *)
 (*Example:  ./spy.exe /var/tmp/CETI2_XhtAbh/MedianBad1.c.ast "2 13 3" 4 1000
 Output:(2, 3, 4); (13, 3, 4); (3, 2, 1); (3, 3, 4)  (sid, cid, idx)*)
@@ -38,11 +58,20 @@ let () = begin
     Cil.useLogicalOperators := true;
     
     let astFile:string = Sys.argv.(1) in
-    let sids:CM.sid_t list = L.map int_of_string (CM.str_split Sys.argv.(2)) in
-    let tplLevel:int = int_of_string Sys.argv.(3) in
-    let maxV:int = int_of_string Sys.argv.(4) in
+    let labelSrc:string = Sys.argv.(2) in 
+    let sids:CM.sid_t list = L.map int_of_string (CM.str_split Sys.argv.(3)) in
+    let tplLevel:int = int_of_string Sys.argv.(4) in
+    let maxV:int = int_of_string Sys.argv.(5) in
 
     let ast, mainFd'', mainQFd'', correctQFd'', stmtHt = CM.read_file_bin astFile in
+
+    (*add labels to file*)
+    let ss:SS.t = List.fold_right SS.add sids SS.empty in
+    let labeledAst = CM.copyObj ast in 
+    visitCilFileSameGlobals ((new labelVisitor) ss) labeledAst;    
+    CM.writeSrc labelSrc labeledAst;
+		
+    (*compute tasks*)
     let rs = L.map (fun sid -> spy ast.fileName stmtHt sid tplLevel maxV) sids in
     let rs' = L.filter (function |[] -> false |_ -> true) rs in
     let rs = L.flatten rs' in
@@ -50,5 +79,5 @@ let () = begin
     if (L.length rs) = 0 then (E.log "No spied info. Exit!"; exit 0);
     let rs = L.map MT.string_of_spys rs in
     P.printf "%s" (String.concat "; " rs)
-    
+
 end

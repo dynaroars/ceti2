@@ -253,7 +253,7 @@ class Worker(object):
         if src : #transform success
             uks = self.klee(src)
             if uks:                
-                print "{}: {} ===> {} ===> {}".format(src, oldStmt, newStmt, uks)
+                logger.debug("{}: {} ===> {} ===> {}".format(src, oldStmt, newStmt, uks))
                 repairSrc = self.repair(oldStmt, newStmt, uks)
                 return repairSrc
             
@@ -310,36 +310,47 @@ class Repair(object):
 
         self.src = tsrc
         
-
     def start(self):
         #orig stuff
         origSrc = self.src
         origAstFile, goodInps, badInps = self.check(origSrc)
+        origCovSrc = self.cov(origSrc, origAstFile)
         if not badInps:
-            logger.info("no bad tests: {} seems correct!".format(origAstFile))
+            logger.info("no bad tests: {} seems correct!".format(origSrc))
             return
         
         candSrc = origSrc
         currIter = 0
         while True:
             currIter += 1
-            suspStmts = self.getSuspStmts(origSrc, origAstFile, settings.topN, goodInps, badInps)
+            suspStmts = self.getSuspStmts(
+                origCovSrc, settings.topN, goodInps, badInps)
             assert suspStmts
-
-            candSrcs = self.repair(origSrc, origAstFile, suspStmts, goodInps, badInps)
+            inpsFile = self.writeInps(goodInps | badInps, "allInps")
+            
+            candSrcs = self.repair(origSrc, origAstFile, inpsFile, suspStmts)
             if not candSrcs:
                 logger.info("no repair found. Stop!")
                 break
 
             logger.info("*** iter {}, candidates {}, goods {}, bads {}"
-                        .format(currIter, len(candSrcs), len(goodInps), len(badInps)))
+                        .format(currIter, len(candSrcs),
+                                len(goodInps), len(badInps)))
             repairSrc = self.mcheck(candSrcs, goodInps, badInps)
             if repairSrc:
                 logger.info("{} seems correct!".format(repairSrc))
                 break
-            
-            
-        logger.info("Iters: {}".format(currIter))
+
+        logger.info("iters: {}, repair found: {}"
+                    .format(currIter, repairSrc is not None))
+
+
+    def writeInps(self, inps, fname):
+        contents = "\n".join(map(lambda s: " ".join(map(str, s)), inps))
+        inpsFile = os.path.join(self.tmpdir, "{}.inps".format(fname))
+        CM.vwrite(inpsFile, contents)
+        logger.debug("write: {}".format(inpsFile))
+        return inpsFile         
 
     ### CHECK ###
     def preproc(self, src):
@@ -392,7 +403,6 @@ class Repair(object):
         _, astFile = self.preproc(src)
         flSrc = self.instr(src, astFile)
         goodInps, badInps = self.getGBInps(flSrc)
-        
         return astFile, goodInps, badInps
 
     def mcheck(self, srcs, goodInps, badInps):
@@ -404,19 +414,15 @@ class Repair(object):
             else:
                 for inp in goodInps_: goodInps.add(inp)
                 for inp in badInps_: badInps.add(inp)  #block invalid candidates
-
-
         return None
             
             
     ### Fault Loc ###
-    def getSuspStmts(self, src, astFile, n, goodInps, badInps):
-        covSrc = self.cov(src, astFile)
+    def getSuspStmts(self, covSrc, n, goodInps, badInps):
         suspStmts = faultloc.analyze(
             covSrc, goodInps, badInps, settings.faultlocAlg, self.tmpdir)
-        suspStmts = [sid for sid, _ in suspStmts.most_common(n)]
+        suspStmts = [sid for sid, score_ in suspStmts.most_common(n)]
         return suspStmts
-
     
     def cov(self, src, astFile):
         """
@@ -434,30 +440,21 @@ class Repair(object):
 
 
     ### Repair ###
-    def repair(self, src, astFile, suspStmts, goodInps, badInps, doParallel=True):
-        labelSrc = self.label(src, astFile, suspStmts)        
-        tasks = self.spy(astFile, suspStmts)
+    def repair(self, src, astFile, inpsFile, suspStmts, doParallel=True):
+        labelSrc, tasks = self.spy(src, astFile, suspStmts)
         
-        #write inps to files   #good.inps , bad.inps
-        def _f(inps, s):
-            contents = "\n".join(map(lambda s: " ".join(map(str, s)), inps))
-            inpsFile = os.path.join(self.tmpdir, "{}.inps".format(s))
-            CM.vwrite(inpsFile, contents)
-            logger.debug("write: {}".format(inpsFile))
-            return inpsFile 
-
-        inpsFile = _f(list(goodInps) + list(badInps), "allInps")
-
         if doParallel:
             from multiprocessing import (Process, Queue, Value,
                                          current_process, cpu_count)
             Q = Queue()
             V = Value("i",0)
 
-            workloads = CM.getWorkloads(tasks, max_nprocesses=cpu_count(), chunksiz=2)
-            logger.info("workloads {}: {}".format(len(workloads), map(len,workloads)))
+            workloads = CM.getWorkloads(
+                tasks, max_nprocesses=cpu_count(), chunksiz=2)
+            logger.info("workloads {}: {}"
+                        .format(len(workloads), map(len,workloads)))
 
-            workers = [Process(target=Worker.wprocess, #args=(i, wl,no_stop, no_bugfix, V, Q))
+            workers = [Process(target=Worker.wprocess,
                                args=(i, astFile, labelSrc, inpsFile, wl, V, Q))
                        for i,wl in enumerate(workloads)]
 
@@ -466,34 +463,26 @@ class Repair(object):
             for i,_ in enumerate(workers):
                 wrs.extend(Q.get())            
         else:
-            wrs = Worker.wprocess(0, astFile, labelSrc, inpsFile, tasks, V=None,Q=None)
+            wrs = Worker.wprocess(0, astFile, labelSrc, inpsFile, tasks,
+                                  V=None,Q=None)
 
         repairSrcs = [r for r in wrs if r]
         logger.info("found {} candidate sols".format(len(repairSrcs)))
         return repairSrcs
     
-    def label(self, src, astFile, sids):
-        
-        ssids ='"{}"'.format(" ".join(map(str, sids)))
-        labelSrc = "{}.label.c".format(src)
 
-        logger.info("labels for {} susp sids {}: {}".format(len(sids), ssids, labelSrc))
-        cmd = "./label.exe {} {} {}".format(astFile, ssids, labelSrc)
+    def spy(self, src, astFile, sids):
+        ssids ='"{}"'.format(" ".join(map(str, sids)))
+        labelSrc = "{}.label.c".format(src)        
+        cmd = "./spy.exe {} {} {} {} {}".format(
+            astFile, labelSrc, ssids, settings.tplLevel, settings.maxV)
         logger.debug(cmd)
         outMsg, errMsg = CM.vcmd(cmd)
-        assert not errMsg, errMsg
         assert os.path.isfile(labelSrc), labelSrc
-        return labelSrc    
-
-    def spy(self, astFile, sids):
-        ssids ='"{}"'.format(" ".join(map(str, sids)))
-        cmd = "./spy.exe {} {} {} {}".format(
-            astFile, ssids, settings.tplLevel, settings.maxV)
-        logger.debug(cmd)
-        outMsg, errMsg = CM.vcmd(cmd)
-        logger.debug(errMsg)
         logger.debug(outMsg)
-
+        logger.debug(errMsg)
+        
+        #compute tasks
         clist = outMsg.split('\n')[-1]
         clist = [c.strip() for c in clist.split(";")]
         clist = [c[1:][:-1] for c in clist] #remove ( )
@@ -508,27 +497,30 @@ class Repair(object):
         from random import shuffle
         shuffle(tasks)
         logger.debug("tasks {}".format(len(tasks)))
-        return tasks
+        
+        return labelSrc, tasks
 
 
-    CID_CONSTS = 1
-    CID_OPS_PR = 2
-    CID_VS = 3
 
     @classmethod
     def getData(cls, cid, n):
         "return [myid, mylist]"
         import itertools
+
+        CID_CONSTS = 1
+        CID_OPS_PR = 2
+        CID_VS = 3
+        
         rs = []
 
         #n consts
-        if cid == cls.CID_CONSTS:
+        if cid == CID_CONSTS:
             rs.append((0, [n]))
-        elif cid == cls.CID_OPS_PR:
+        elif cid == CID_OPS_PR:
             for i in range(n):
                 rs.append((i, [i+1]))
         #n vars
-        elif cid == cls.CID_VS:
+        elif cid == CID_VS:
             maxCombSiz = 2
             for siz in range(maxCombSiz + 1):
                 cs = itertools.combinations(range(n), siz)

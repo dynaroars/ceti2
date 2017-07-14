@@ -24,8 +24,6 @@ object
     ChangeDoChildrenPost(s, action)
   end
 
-
-	  
 	  
 
 (* main *)
