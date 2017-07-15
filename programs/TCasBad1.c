@@ -13,7 +13,7 @@ int buggyQ(int in, int up, int down) {
 
 
 int correctQ(int in, int up, int down){
-     return ((in==0 && up > down) || (in!=0 && up + 100 > down));
+     return ((in!=0 && (up + 100> down)) || (in==0 && (up > down)));
 }
 
 int mainQ(int x, int y, int z){
