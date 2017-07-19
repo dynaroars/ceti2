@@ -19,6 +19,7 @@ def ccompile(src):
     return exeFile
 
 class KLEE(object):
+
     @classmethod
     def getInps(cls, flSrc, tmpdir):
         "Get good/bad inps from KLEE"
@@ -54,20 +55,6 @@ class KLEE(object):
             return s
 
         assert ss, ss
-
-        ignoresDone = ['KLEE: done: total instructions',
-                       'KLEE: done: completed paths',
-                       'KLEE: done: generated tests']
-
-        ignoresRun = [ 
-            'KLEE: WARNING: undefined reference to function: printf',
-            'KLEE: WARNING ONCE: calling external: printf',
-            'KLEE: ERROR: ASSERTION FAIL: 0',
-            'KLEE: ERROR: (location information missing) ASSERTION FAIL: 0'
-        ]
-
-        ignoresMiscs = ['KLEE: NOTE: now ignoring this error at this location',
-                        'GOAL: ']        
 
         ss = [s for s in ss.split('\n') if s]
 
@@ -429,7 +416,7 @@ class Src(object):
             else:
                 for inp in goodInps_: goodInps.add(inp)
                 for inp in badInps_: badInps.add(inp)
-        return None, goodInps, badInps        
+        return None, goodInps, badInps 
          
 
 class Worker(object):
@@ -550,7 +537,6 @@ class Repair(object):
             logger.info("no bad tests: {} seems correct!".format(origSrcM.src))
             return
         
-        candSrc = origSrcM.src
         currIter = 0
         while True:
             currIter += 1

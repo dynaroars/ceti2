@@ -1,5 +1,3 @@
-(*instrument printf stmts to C file*)
-
 open Cil
 module H = Hashtbl
 module P = Printf	     
@@ -72,7 +70,8 @@ let () = begin
     let correctQFd:fundec = CM.findFun ast correctQName in    
 
     let ignoreFuns:CM.SS.t =
-      L.fold_right CM.SS.add ["main"; mainQName; correctQName] CM.SS.empty in 
+      L.fold_right CM.SS.add ["main" ; mainQName; correctQName] CM.SS.empty in
+
     (*add stmt id*)
     let stmtHt = H.create 1024 in
     visitCilFileSameGlobals (new CM.numVisitor stmtHt ignoreFuns :> cilVisitor) ast;

@@ -73,14 +73,25 @@ let read_file_ascii ?(keep_empty=true) (filename:string) :string list =
 let canModify : stmtkind -> bool = function 
   |Instr[Set(_)] -> true
   |_ -> false
-	   
+
+let canConsider (funName:string) (ignoreFuns:SS.t): bool =
+    (* let printSet s = SS.iter print_endline s in *)
+    (* printSet ignoreFuns; *)
+  
+  let rv =  not (SS.exists (fun iFun -> in_str iFun funName) ignoreFuns) in 
+  (*if rv then P.printf "can consider fun %s\n" funName else P.printf "NOT consider fun %s\n" funName;*)
+  rv
+
+
 class numVisitor ht (ignoreFuns:SS.t) = object(self)
   inherit nopCilVisitor
 
   val mutable mctr = 1
   val mutable curFd = None
 
-  method vfunc f = curFd <- (Some f); DoChildren
+  method vfunc f =
+    (*P.printf "function %s\n" f.svar.vname;*)
+    curFd <- (Some f); DoChildren
 
   method vblock b = 
     let action (b: block) : block= 
@@ -88,7 +99,7 @@ class numVisitor ht (ignoreFuns:SS.t) = object(self)
 	if canModify s.skind then (
 	  match curFd with 
 	  | Some f -> (
-	    if not (SS.mem f.svar.vname ignoreFuns) then (
+	    if canConsider f.svar.vname ignoreFuns then (
 		s.sid <- mctr;
 		H.add ht mctr (s, f);
 		mctr <- succ mctr
