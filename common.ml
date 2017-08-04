@@ -69,11 +69,12 @@ let read_file_ascii ?(keep_empty=true) (filename:string) :string list =
 				      
 (* Visitors *)
 
-(** Stmts that can be tracked for fault loc and modified for bug fix **)
+(** Stmts that can be tracked for fault loc and modified for bug fix, right now only support assignment statements **)
 let canModify : stmtkind -> bool = function 
   |Instr[Set(_)] -> true
   |_ -> false
 
+(** check if a function should be visited  **)
 let canConsider (funName:string) (ignoreFuns:SS.t): bool =
     (* let printSet s = SS.iter print_endline s in *)
     (* printSet ignoreFuns; *)
@@ -82,7 +83,7 @@ let canConsider (funName:string) (ignoreFuns:SS.t): bool =
   (*if rv then P.printf "can consider fun %s\n" funName else P.printf "NOT consider fun %s\n" funName;*)
   rv
 
-
+(** change id of Stmt for statistical fault location, all other stmt has id 0 **)
 class numVisitor ht (ignoreFuns:SS.t) = object(self)
   inherit nopCilVisitor
 
@@ -96,24 +97,23 @@ class numVisitor ht (ignoreFuns:SS.t) = object(self)
   method vblock b = 
     let action (b: block) : block= 
       let change_sid (s: stmt) : unit =
-	if canModify s.skind then (
-	  match curFd with 
-	  | Some f -> (
-	    if canConsider f.svar.vname ignoreFuns then (
-		s.sid <- mctr;
-		H.add ht mctr (s, f);
-		mctr <- succ mctr
+	    if canModify s.skind then (
+	      match curFd with 
+	      | Some f -> (
+            if canConsider f.svar.vname ignoreFuns then (
+		      s.sid <- mctr;
+		      H.add ht mctr (s, f);
+		      mctr <- succ mctr
+	          )
+	        )
+	      | None -> E.s(E.error "not in a function")
 	    )
-	  )
-	  | None -> E.s(E.error "not in a function")
-	)
-	else s.sid <- 0;  (*Anything not considered has sid 0 *)
+	    else s.sid <- 0;  (*Anything not considered has sid 0 *)
       in 
       L.iter change_sid b.bstmts; 
       b
     in 
     ChangeDoChildrenPost(b, action)
-
 end
 			 
 (*Makes every instruction into its own stmt*)
@@ -123,7 +123,8 @@ class everyVisitor = object
     let action (b: block) : block = 
       let change_stmt (s: stmt) : stmt list = 
 	match s.skind with
-	|Instr(h::t) -> {s with skind = Instr([h])}::L.map mkStmtOneInstr t
+	(*|Instr(h::t) -> {s with skind = Instr([h])}::L.map mkStmtOneInstr t*)
+    | Instr( h::t as l ) -> L.map mkStmtOneInstr l (* gz: easy to read *)
 	|_ -> [s]
       in
       let stmts = L.flatten (L.map change_stmt b.bstmts) in
@@ -133,12 +134,16 @@ class everyVisitor = object
 end
 				      
 
-
+(** change If, Return, ITE( ? : ) stmt to assignment style statment, so that it can be profiled by statisitical debugging, 
+    QUESTIONS: CIL already change ITE to if else
+    TODO: change While, as CIL already change For loop to While loop 
+**)
 class breakCondVisitor = object(self)
   inherit nopCilVisitor
   val mutable curFd = None
   method vfunc f = curFd <- (Some f); DoChildren
 
+  (* make an assignment stmt *)
   method private mk_stmt s e loc: lval*stmt= 
     let fd = match curFd with 
       | Some f -> f | None -> E.s(E.error "not in a function") in
@@ -148,7 +153,6 @@ class breakCondVisitor = object(self)
 
   method vblock b = 
     let action (b: block) : block = 
-
       let rec change_stmt (s: stmt) : stmt list = 
 	match s.skind with
 	(*if (e){b1;}{b2;} ->  int t = e; if (t){b1;}{b2;} *)
@@ -221,7 +225,7 @@ let list_of_some (l:'a option list):'a list =
   in L.rev rs
 
 
-(*Instrument common*)
+(* Instrument a klee_symbolic variable with two assumations over lower bound and higher bound *)
 let mkUk
       (uid:int) (utyp:typ)
       (minV:int)
