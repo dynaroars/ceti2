@@ -1,0 +1,2 @@
+clang -I /home/tnguyen/Src/Devel/KLEE/klee/include -emit-llvm -c -o test.o programs/MedianBad1.klee.c 
+rm -rf hihi ; klee -allow-external-sym-calls -solver-backend=z3 -max-solver-time=3. -max-time=3. -no-output -output-dir=hihi  test.o

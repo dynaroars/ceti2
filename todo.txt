@@ -1,0 +1,6 @@
+
+
+1. do not repair stmts in correctQ or mainQ.
+Todo: do not printf stmts in correctQ
+
+python ceti2.py programs/Test1.c -log 3
