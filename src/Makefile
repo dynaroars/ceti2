@@ -2,7 +2,7 @@ OCAML_OPTIONS = \
   -I $(CIL173)/_build/src \
   -I $(CIL173)/_build/src/ext \
   -I $(CIL173)/_build/src/frontc \
-  -I $(CIL173)/_build/ocamlutil \
+  -I $(CIL173)/_build/src/ocamlutil \
 
 OCAMLC =        ocamlc                          $(OCAML_OPTIONS)
 OCAMLOPT =      ocamlopt                        $(OCAML_OPTIONS)
@@ -69,4 +69,5 @@ modify.exe: $(MODIFY_MODULES:.cmo=.cmx)
 	$(OCAMLOPT) -o $@ unix.cmxa str.cmxa nums.cmxa cil.cmxa $^
 
 clean:
-	rm -f *.cmo *.cmi *.d *.cmx *.dx *.o coverage.exe prepro.exe instr.exe spy.exe modify.exe
+	rm -f *.cmo *.cmi *.d *.cmx *.dx *.o coverage.exe preproc.exe instr.exe spy.exe modify.exe 
+	rm -rf *.pyc *.pyo
