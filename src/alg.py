@@ -93,8 +93,6 @@ class KLEE(object):
         assert os.path.isfile(obj), obj
         assert timeout >= 1, timeout
         assert isinstance(outdir, str), outdir
-        #timeout = settings.solver_timeout
-        # "-allow-external-sym-calls "
         kleeOpts = (
             "-external-calls=all "
             "-solver-backend=z3 "
@@ -387,8 +385,7 @@ class Src(object):
         labelSrc, tasks = CIL.spy(self.src, self.astFile, suspStmts)
 
         if doParallel:
-            from multiprocessing import (Process, Queue, Value,
-                                         current_process, cpu_count)
+            from multiprocessing import (Process, Queue, Value, cpu_count)
             Q = Queue()
             V = Value("i", 0)
 
