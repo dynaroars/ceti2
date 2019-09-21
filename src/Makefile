@@ -1,8 +1,8 @@
 OCAML_OPTIONS = \
-  -I $(CIL173)/_build/src \
-  -I $(CIL173)/_build/src/ext \
-  -I $(CIL173)/_build/src/frontc \
-  -I $(CIL173)/_build/src/ocamlutil \
+  -I /home/SHARED/Devel/CIL/cil/_build/src \
+  -I /home/SHARED/Devel/CIL/cil/_build/src/ext \
+  -I /home/SHARED/Devel/CIL/cil/_build/src/frontc \
+  -I /home/SHARED/Devel/CIL/cil/_build/src/ocamlutil \
 
 OCAMLC =        ocamlc                          $(OCAML_OPTIONS)
 OCAMLOPT =      ocamlopt                        $(OCAML_OPTIONS)
