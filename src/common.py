@@ -1,32 +1,51 @@
 import logging
 
 import subprocess as sp
-def vcmd(cmd, inp=None, shell=True):
-    proc = sp.Popen(cmd,shell=shell,stdin=sp.PIPE,
-                    stdout=sp.PIPE,stderr=sp.PIPE)
-    return proc.communicate(input=inp)
+
+
+def vcmd(cmd, inp=None, shell=True, stderr=sp.PIPE, do_communicate=True):
+    proc = sp.Popen(cmd, shell=shell, stdin=sp.PIPE,
+                    stdout=sp.PIPE, stderr=stderr)
+
+    if do_communicate:
+        return proc.communicate(input=inp)
+    else:
+        return proc
+
+
+def decode_byte(out_err_msgs):
+    out_msg, err_msg = out_err_msgs
+    if out_msg:
+        out_msg = out_msg.decode('utf-8')
+    if err_msg:
+        err_msg = err_msg.decode('utf-8')
+    return out_msg, err_msg
+
 
 def vwrite(filename, contents, mode='w'):
     with open(filename, mode) as fh:
         fh.write(contents)
 
+
 def isCompile(src):
     cmd = "gcc {} -o {}.exe".format(src, src)
     outMsg, errMsg = vcmd(cmd)
     if 'error:' in errMsg:
-        print errMsg
+        print(errMsg)
         return False
     else:
         return True
+
 
 def iread(filename):
     with open(filename, 'r') as fh:
         for line in fh:
             yield line
-            
+
+
 def pause(s=None):
     msg = "Press any key to continue ..." if s is None else s
-    try: #python2
+    try:  # python2
         raw_input(msg)
     except NameError:
         input(msg)
@@ -41,6 +60,7 @@ def getLogger(name, level):
     ch.setFormatter(formatter)
     logger.addHandler(ch)
     return logger
+
 
 def getLogLevel(level):
     """
@@ -63,11 +83,8 @@ def getLogLevel(level):
         return logging.DEBUG
 
 
-
-
-
-#parallel
-def getWorkloads(tasks,max_nprocesses,chunksiz):
+# parallel
+def getWorkloads(tasks, max_nprocesses, chunksiz):
     """
     >>> wls = getWorkloads(range(12),7,1); wls
     [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9], [10, 11]]
@@ -89,21 +106,20 @@ def getWorkloads(tasks,max_nprocesses,chunksiz):
         assert max_nprocesses >= 1, max_nprocesses
         assert chunksiz >= 1, chunksiz
 
-    #determine # of processes
+    # determine # of processes
     ntasks = len(tasks)
     nprocesses = int(round(ntasks/float(chunksiz)))
     if nprocesses > max_nprocesses:
         nprocesses = max_nprocesses
 
-
-    #determine workloads 
+    # determine workloads
     cs = int(round(ntasks/float(nprocesses)))
     workloads = []
     for i in range(nprocesses):
         s = i*cs
         e = s+cs if i < nprocesses-1 else ntasks
         wl = tasks[s:e]
-        if wl:  #could be 0, e.g., getWorkloads(range(12),7,1)
+        if wl:  # could be 0, e.g., getWorkloads(range(12),7,1)
             workloads.append(wl)
 
     return workloads

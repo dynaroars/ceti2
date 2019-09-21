@@ -1,6 +1,7 @@
 import pdb
+import pathlib
+
 import faultloc
-import logging
 import os.path
 import subprocess as sp
 import shutil
@@ -15,30 +16,33 @@ def ccompile(src):
     assert os.path.isfile(src), src
     exeFile = "{}.exe".format(src)
     cmd = ("clang {} -o {}".format(src, exeFile))
-    outMsg, errMsg = CM.vcmd(cmd)
-    assert "Error: " not in errMsg, errMsg
-    assert not outMsg, outMsg
+    out_msg, err_msg = CM.vcmd(cmd)
+    assert "Error: " not in err_msg, err_msg
+    assert not out_msg, out_msg
     assert os.path.isfile(exeFile)
     return exeFile
 
 
-class KLEE(object):
+class KLEE:
 
     @classmethod
-    def getInps(cls, flSrc, tmpdir):
+    def get_good_bad_inps(cls, fl_src, tmpdir):
         "Get good/bad inps from KLEE"
-        obj = cls.klcompile(flSrc)
-        hs = str(hash(flSrc)).replace("-", "_")
+        assert fl_src.is_file(), fl_src
+        assert tmpdir.is_dir(), fl_src
+
+        obj = cls.klcompile(fl_src)
+        hs = str(hash(fl_src)).replace("-", "_")
         outdir = os.path.join(tmpdir, hs)
         proc = cls.klexec(obj, settings.timeout, outdir, opts=[])
-        outMsg, errMsg = proc.communicate()
-        assert not errMsg, errMsg
+        out_msg, err_msg = CM.decode_byte(proc.communicate())
+        assert not err_msg, err_msg
 
-        goodInps, badInps = cls.parseInps(outMsg)
-        return goodInps, badInps
+        good_inps, bad_inps = cls.parse_inps(out_msg)
+        return good_inps, bad_inps
 
     @classmethod
-    def parseInps(cls, ss):
+    def parse_inps(cls, ss):
         """
         Obtain good/bad inputs
 
@@ -61,31 +65,36 @@ class KLEE(object):
 
         ss = [s for s in ss.split('\n') if s]
 
-        gInps = set(parse(s) for s in ss if "PASS" in s)
-        bInps = set(parse(s) for s in ss if "FAIL" in s)
+        g_inps = set(parse(s) for s in ss if "PASS" in s)
+        b_inps = set(parse(s) for s in ss if "FAIL" in s)
 
-        return gInps, bInps
+        return g_inps, b_inps
 
     @classmethod
     def klcompile(cls, src):
         assert os.path.isfile(src), src
 
         # compile file with llvm
-        includePath = os.path.join(settings.KLEE_SRC, "include")
-        clangOpts = "-emit-llvm -c"
-        obj = "{}.o".format(src)
-        cmd = ("clang -I {} {} {} -o {}"
-               .format(includePath, clangOpts, src, obj))
+        include = settings.KLEE_SRC / "include"
+        assert include.is_dir(), include
+
+        opts = "-emit-llvm -c"
+        obj = src.with_suffix('.o')
+        cmd = ("clang -I {} {} {} -o {}".format(include, opts, src, obj))
+
         logger.debug("$ {}".format(cmd))
 
-        proc = sp.Popen(cmd, shell=True,
-                        stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE)
-        outMsg, errMsg = proc.communicate()
+        out_msg, err_msg = CM.decode_byte(CM.vcmd(cmd))
+        assert not out_msg, out_msg
 
-        assert not outMsg, outMsg
-        assert "clang" not in errMsg and "error" not in errMsg, (cmd, errMsg)
-        if errMsg:
-            logger.debug(errMsg)
+        assert "clang" not in err_msg and \
+            "error" not in err_msg, (cmd, err_msg)
+
+        if err_msg:
+            logger.debug(err_msg)
+
+        assert obj.is_file()
+
         return obj
 
     @classmethod
@@ -107,7 +116,7 @@ class KLEE(object):
         cmd = "{} {} {}".format(klee_exe, kleeOpts, obj).strip()
         logger.debug("$ {}".format(cmd))
 
-        proc = sp.Popen(cmd, shell=True, stdout=sp.PIPE, stderr=sp.STDOUT)
+        proc = CM.vcmd(cmd, stderr=sp.STDOUT, do_communicate=False)
         return proc
 
     @classmethod
@@ -173,65 +182,76 @@ class KLEE(object):
         return None
 
 
-class CIL(object):
+class CIL:
+
     @classmethod
     def preproc(cls, src):
-        logger.info("preproc and ast: {}".format(src))
-        preprocSrc = "{}.preproc.c".format(src)  # /a.preproc.c
-        astFile = "{}.ast".format(src)  # /a.ast
+        assert src.is_file(), src
 
-        cmd = "./preproc.exe {} {} {} {} {}".format(
-            src, settings.mainQ, settings.correctQ, preprocSrc, astFile)
+        logger.info("preprocess and obtain AST from {}".format(src))
+        preproc_src = src.with_suffix('.preproc.c')  # /a.preproc.c
+        ast_file = src.with_suffix('.ast')  # /a.ast
+
+        cmd = "./preproc.exe {} {} {} {} {}"
+        cmd = cmd.format(src, settings.mainQ,
+                         settings.correctQ, preproc_src, ast_file)
         logger.debug(cmd)
 
-        outMsg, errMsg = CM.vcmd(cmd)
-        assert not errMsg, errMsg
-        logger.debug(outMsg)
-        assert os.path.isfile(preprocSrc), preprocSrc
-        assert os.path.isfile(astFile), astFile
-        return preprocSrc, astFile
+        out_msg, err_msg = CM.vcmd(cmd)
+        assert not err_msg, err_msg
+        logger.debug(out_msg)
+        assert preproc_src.is_file(), preproc_src
+        assert ast_file.is_file(), ast_file
+        return preproc_src, ast_file
 
     @classmethod
-    def cov(cls, src, astFile):
+    def cov(cls, src, ast_file):
         """
         Create file with cov info (i.e., printf stmts)
         """
+        assert src.is_file(), src
+        assert ast_file.is_file(), src
+
         covSrc = "{}.cov.c".format(src)
         logger.info("fault localization: {}".format(covSrc))
-        cmd = "./coverage.exe {} {}".format(covSrc, astFile)
+        cmd = "./coverage.exe {} {}".format(covSrc, ast_file)
         logger.debug(cmd)
-        outMsg, errMsg = CM.vcmd(cmd)
-        assert not errMsg, errMsg
-        logger.debug(outMsg)
+        out_msg, err_msg = CM.vcmd(cmd)
+        assert not err_msg, err_msg
+        logger.debug(out_msg)
         assert os.path.isfile(covSrc), covSrc
         return covSrc
 
     @classmethod
-    def instr(self, src, astFile):
-        flSrc = "{}.fl.c".format(src)
-        logger.info("get good/bad inps: {}".format(flSrc))
-        cmd = "./instr.exe {} {} {}".format(flSrc, astFile, settings.maxV)
+    def instr(self, src, ast_file):
+        assert src.is_file(), src
+        assert ast_file.is_file(), src
+
+        fl_src = src.with_suffix('.fl.c')
+        logger.info("get good/bad inps from {}".format(fl_src))
+        cmd = "./instr.exe {} {} {}".format(fl_src, ast_file, settings.maxV)
         logger.debug(cmd)
-        outMsg, errMsg = CM.vcmd(cmd)
-        assert not errMsg, errMsg
-        logger.debug(outMsg)
-        assert os.path.isfile(flSrc), flSrc
-        return flSrc
+
+        out_msg, err_msg = CM.vcmd(cmd)
+        assert not err_msg, err_msg
+        logger.debug(out_msg)
+        assert os.path.isfile(fl_src), fl_src
+        return fl_src
 
     @classmethod
-    def spy(cls, src, astFile, sids):
+    def spy(cls, src, ast_file, sids):
         ssids = '"{}"'.format(" ".join(map(str, sids)))
         labelSrc = "{}.label.c".format(src)
         cmd = "./spy.exe {} {} {} {} {}".format(
-            astFile, labelSrc, ssids, settings.tplLevel, settings.maxV)
+            ast_file, labelSrc, ssids, settings.tplLevel, settings.maxV)
         logger.debug(cmd)
-        outMsg, errMsg = CM.vcmd(cmd)
+        out_msg, err_msg = CM.decode_byte(CM.vcmd(cmd))
         assert os.path.isfile(labelSrc), labelSrc
-        logger.debug(outMsg)
-        logger.debug(errMsg)
+        logger.debug(out_msg)
+        logger.debug(err_msg)
 
         # compute tasks
-        clist = outMsg.split('\n')[-1]
+        clist = out_msg.split('\n')[-1]
         clist = [c.strip() for c in clist.split(";")]
         clist = [c[1:][:-1] for c in clist]  # remove ( )
         clist = [map(int, c.split(',')) for c in clist]
@@ -267,7 +287,7 @@ class CIL(object):
                         stdout=sp.PIPE, stderr=sp.PIPE)
         rs, rsErr = proc.communicate()
 
-        #assert not rs, rs
+        # assert not rs, rs
         logger.debug(rsErr[:-1] if rsErr.endswith("\n") else rs_err)
 
         if "error" in rsErr or "success" not in rsErr:
@@ -323,8 +343,10 @@ class CIL(object):
         return rs
 
 
-class Src(object):
+class Src:
     def __init__(self, src):
+        assert src.is_file()
+
         self.src = src
 
     @property
@@ -336,32 +358,34 @@ class Src(object):
             return self._exeFile
 
     @property
-    def astFile(self):
+    def ast_file(self):
         try:
-            return self._astFile
+            return self._ast_file
         except AttributeError:
-            _, self._astFile = CIL.preproc(self.src)
-            return self._astFile
+            _, self._ast_file = CIL.preproc(self.src)
+            return self._ast_file
 
     @property
     def covSrc(self):
         try:
             return self._covSrc
         except AttributeError:
-            self._covSrc = CIL.cov(self.src, self.astFile)
+            self._covSrc = CIL.cov(self.src, self.ast_file)
             return self._covSrc
 
-    def getInps(self, tmpdir):
+    def get_good_bad_inps(self, tmpdir):
         """
         Return good and bad inps.
         if not bad inps then program passes, otherwise program fails
         """
-        logger.info("get inps from {}".format(self.src))
-        flSrc = CIL.instr(self.src, self.astFile)
-        goodInps, badInps = KLEE.getInps(flSrc, tmpdir)
-        return goodInps, badInps
+        assert tmpdir.is_dir(), tmpdir
 
-    def checkInps(self, inps):
+        logger.info("get good/bad inps from '{}'".format(self.src))
+        fl_src = CIL.instr(self.src, self.ast_file)
+        good_inps, bad_inps = KLEE.get_good_bad_inps(fl_src, tmpdir)
+        return good_inps, bad_inps
+
+    def check_inps(self, inps):
         """
         Determine which inp is good/bad wrt to src
         """
@@ -369,9 +393,9 @@ class Src(object):
 
         def check(inp):
             cmd = "{} {}".format(self.exeFile, ' '.join(map(str, inp)))
-            outMsg, errMsg = CM.vcmd(cmd)
-            assert not errMsg
-            return "PASS" in outMsg
+            out_msg, err_msg = CM.vcmd(cmd)
+            assert not err_msg
+            return "PASS" in out_msg
 
         goods, bads = set(), set()
         for inp in inps:
@@ -382,7 +406,7 @@ class Src(object):
         return goods, bads
 
     def repair(self, inpsFile, suspStmts, doParallel=True):
-        labelSrc, tasks = CIL.spy(self.src, self.astFile, suspStmts)
+        labelSrc, tasks = CIL.spy(self.src, self.ast_file, suspStmts)
 
         if doParallel:
             from multiprocessing import (Process, Queue, Value, cpu_count)
@@ -395,7 +419,7 @@ class Src(object):
                         .format(len(workloads), map(len, workloads)))
 
             workers = [Process(target=Worker.wprocess,
-                               args=(i, self.astFile, labelSrc, inpsFile,
+                               args=(i, self.ast_file, labelSrc, inpsFile,
                                      wl, V, Q))
                        for i, wl in enumerate(workloads)]
 
@@ -405,7 +429,7 @@ class Src(object):
             for i, _ in enumerate(workers):
                 wrs.extend(Q.get())
         else:
-            wrs = Worker.wprocess(0, self.astFile, labelSrc, inpsFile, tasks,
+            wrs = Worker.wprocess(0, self.ast_file, labelSrc, inpsFile, tasks,
                                   V=None, Q=None)
 
         repairSrcs = [Src(r) for r in wrs if r]
@@ -414,20 +438,20 @@ class Src(object):
 
     @classmethod
     def check(cls, srcs, tmpdir):
-        goodInps, badInps = set(), set()
+        good_inps, bad_inps = set(), set()
         for src in srcs:
-            goodInps_, badInps_ = src.getInps(tmpdir)
-            if not badInps_:
+            good_inps_, bad_inps_ = src.get_good_bad_inps(tmpdir)
+            if not bad_inps_:
                 return src, None, None
             else:
-                for inp in goodInps_:
-                    goodInps.add(inp)
-                for inp in badInps_:
-                    badInps.add(inp)
-        return None, goodInps, badInps
+                for inp in good_inps_:
+                    good_inps.add(inp)
+                for inp in bad_inps_:
+                    bad_inps.add(inp)
+        return None, good_inps, bad_inps
 
 
-class Worker(object):
+class Worker:
     def __init__(self, wid, src, labelSrc, inpsFile, sid, cid, myid, idxs):
         assert wid >= 0, wid
         assert isinstance(src, str) and os.path.isfile(src), src
@@ -490,8 +514,11 @@ class Worker(object):
         assert wid >= 0, wid
         assert tasks, tasks
 
-        tasks = sorted(tasks,
-                       key=lambda(sid, cid, myid, mylist): (cid, len(mylist)))
+        def mysort(x):
+            sid, cid, myid, mylist = x
+            return (cid, len(mylist))
+
+        tasks = sorted(tasks, key=lambda x: mysort(x))
 
         # break after finding a fix
         # noparallel
@@ -525,67 +552,69 @@ class Worker(object):
             return None
 
 
-class Repair(object):
+class Repair:
     def __init__(self, src):
+        assert src.is_file(), src
 
+        # make a copy and work with that
         import tempfile
-        self.tmpdir = tempfile.mkdtemp(dir=settings.tmpdir, prefix="CETI2_")
-        tsrc = os.path.join(self.tmpdir, os.path.basename(src))
+        self.tmpdir = pathlib.Path(tempfile.mkdtemp(
+            dir=settings.tmpdir, prefix="CETI2_"))
+        tsrc = self.tmpdir / src.name
         shutil.copyfile(src, tsrc)
-        assert os.path.isfile(tsrc), tsrc
+        assert tsrc.is_file()
         self.src = tsrc
 
     def start(self):
-        origSrcM = Src(self.src)
-        goodInps, badInps = origSrcM.getInps(self.tmpdir)
+        orig_src = Src(self.src)
+        good_inps, bad_inps = orig_src.get_good_bad_inps(self.tmpdir)
 
-        if not badInps:
-            logger.info("no bad tests: {} seems correct!".format(origSrcM.src))
+        if not bad_inps:
+            logger.info("no bad tests: {} seems correct!".format(orig_src.src))
             return
 
         currIter = 0
         while True:
             currIter += 1
-            print len(goodInps), len(badInps)
             suspStmts = self.getSuspStmts(
-                origSrcM, settings.topN, goodInps, badInps)
+                orig_src, settings.topN, good_inps, bad_inps)
             assert suspStmts, suspStmts
             logger.info("suspstmts ({}): {}"
                         .format(len(suspStmts), ','.join(map(str, suspStmts))))
-            inpsFile = self.writeInps(goodInps | badInps, "allInps")
+            inpsFile = self.write_inps(good_inps | bad_inps, "all_inps")
 
-            candSrcs = origSrcM.repair(inpsFile, suspStmts)
+            candSrcs = orig_src.repair(inpsFile, suspStmts)
             if not candSrcs:
                 logger.info("no repair found. Stop!")
                 break
 
             logger.info("*** iter {}, candidates {}, goods {}, bads {}"
                         .format(currIter, len(candSrcs),
-                                len(goodInps), len(badInps)))
+                                len(good_inps), len(bad_inps)))
             repairSrc, goods, bads = Src.check(candSrcs, self.tmpdir)
             if repairSrc:
                 logger.info("candidate repair: {}".format(repairSrc.src))
                 break
-            goods, bads = origSrcM.checkInps(goods | bads)
+            goods, bads = orig_src.check_inps(goods | bads)
             if goods:
                 for inp in goods:
-                    goodInps.add(inp)
+                    good_inps.add(inp)
             if bads:
                 for inp in bads:
-                    badInps.add(inp)
+                    bad_inps.add(inp)
 
         logger.info("iters: {}, repair found: {}"
                     .format(currIter, repairSrc is not None))
 
-    def writeInps(self, inps, fname):
+    def write_inps(self, inps, fname):
         contents = "\n".join(map(lambda s: " ".join(map(str, s)), inps))
         inpsFile = os.path.join(self.tmpdir, "{}.inps".format(fname))
         CM.vwrite(inpsFile, contents)
         logger.debug("write: {}".format(inpsFile))
         return inpsFile
 
-    def getSuspStmts(self, src, n, goodInps, badInps):
+    def getSuspStmts(self, src, n, good_inps, bad_inps):
         suspStmts = faultloc.analyze(
-            src.covSrc, goodInps, badInps, settings.faultlocAlg, self.tmpdir)
+            src.covSrc, good_inps, bad_inps, settings.faultlocAlg, self.tmpdir)
         suspStmts = [sid for sid, score_ in suspStmts.most_common(n)]
         return suspStmts

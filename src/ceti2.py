@@ -1,11 +1,11 @@
-import os.path
+#! /usr/bin/env python3
 import logging
 import common as CM
 
 if __name__ == "__main__":
     import argparse
     aparser = argparse.ArgumentParser("CETI2")
-    aparser.add_argument("bad_src", help="bad src")
+    aparser.add_argument("src", help="src code")
 
     # 0 Error #1 Warn #2 Info #3 Debug #4 Detail
     aparser.add_argument("--log", "-log",
@@ -31,9 +31,10 @@ if __name__ == "__main__":
     seed = round(time(), 2) if args.seed is None else float(args.seed)
 
     import alg
+    import pathlib
 
     # Run it
     st = time()
-    inp = os.path.realpath(os.path.expanduser(args.bad_src))
-    alg.Repair(inp).start()
+    src = pathlib.Path(args.src)
+    alg.Repair(src).start()
     logger.info("time {}s".format(time() - st))
