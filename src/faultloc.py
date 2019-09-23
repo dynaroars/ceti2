@@ -19,7 +19,7 @@ def analyze(covSrc, goodInps, badInps, alg, tmpdir):
     covExe = "{}.exe".format(covSrc)
     cmd = "clang {} -o {}".format(covSrc, covExe)
     logger.debug(cmd)
-    _, errMsg = CM.decode_byte(CM.vcmd(cmd))
+    _, errMsg = CM.vcmd(cmd)
     assert "error" not in errMsg, errMsg
     assert os.path.isfile(covExe)
 

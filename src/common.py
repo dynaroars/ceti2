@@ -1,24 +1,30 @@
+import pdb
 import logging
 
 import subprocess as sp
 
+DBG = pdb.set_trace
+
 
 def vcmd(cmd, inp=None, shell=True, stderr=sp.PIPE, do_communicate=True):
-    proc = sp.Popen(cmd, shell=shell, stdin=sp.PIPE,
-                    stdout=sp.PIPE, stderr=stderr)
+    proc = sp.Popen(
+        cmd, shell=shell, stdin=sp.PIPE, stdout=sp.PIPE, stderr=stderr)
 
     if do_communicate:
-        return proc.communicate(input=inp)
+        return decode_byte(proc.communicate(input=inp))
     else:
         return proc
 
 
 def decode_byte(out_err_msgs):
     out_msg, err_msg = out_err_msgs
-    if out_msg:
+
+    # explicitly use not None to avoid skipping b''
+    if out_msg is not None:
         out_msg = out_msg.decode('utf-8')
-    if err_msg:
+    if err_msg is not None:
         err_msg = err_msg.decode('utf-8')
+
     return out_msg, err_msg
 
 

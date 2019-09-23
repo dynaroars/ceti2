@@ -15,3 +15,11 @@ assert KLEE_SRC.is_dir(), KLEE_SRC
 
 KLEE_BUILD = pathlib.Path("/home/SHARED/Devel/KLEE/klee_build_dir")
 assert KLEE_BUILD.is_dir(), KLEE_BUILD
+KLEE_EXE = KLEE_BUILD / 'bin' / 'klee'
+assert KLEE_EXE.is_file(), KLEE_EXE
+
+KLEE_OPTS = ("-external-calls=all "
+             "-solver-backend=z3 "
+             "-max-solver-time={} "
+             "-max-time={} "
+             "-output-dir={} ")
