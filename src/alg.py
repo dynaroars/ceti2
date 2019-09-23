@@ -1,14 +1,15 @@
 import pdb
 import pathlib
-
-import faultloc
 import subprocess as sp
 import shutil
+
 import settings
 import common as CM
 
+from faultloc import FaultLoc
+
 DBG = pdb.set_trace
-logger = CM.getLogger(__name__, settings.loggingLevel)
+mlog = CM.getLogger(__name__, settings.loggingLevel)
 
 
 def ccompile(src):
@@ -79,7 +80,7 @@ class KLEE:
         obj = src.with_suffix('.o')
         cmd = "clang -I {} {} {} -o {}".format(include, opts, src, obj)
 
-        logger.debug("$ {}".format(cmd))
+        mlog.debug("$ {}".format(cmd))
 
         out_msg, err_msg = CM.vcmd(cmd)
         assert not out_msg, out_msg
@@ -88,7 +89,7 @@ class KLEE:
             "error" not in err_msg, (cmd, err_msg)
 
         if err_msg:
-            logger.debug(err_msg)
+            mlog.debug(err_msg)
 
         assert obj.is_file(), obj
 
@@ -105,7 +106,7 @@ class KLEE:
             kl_opts += ' '.join(map(str, opts))
 
         cmd = "{} {} {}".format(settings.KLEE_EXE, kl_opts, obj).strip()
-        logger.debug("$ {}".format(cmd))
+        mlog.debug("$ {}".format(cmd))
 
         proc = CM.vcmd(cmd, stderr=sp.STDOUT, do_communicate=False)
         return proc
@@ -116,7 +117,7 @@ class KLEE:
 
         # compile transformed file and run run klee on it
 
-        logger.debug("worker {}: run klee on {} ***".format(wid, src))
+        mlog.debug("worker {}: run klee on {} ***".format(wid, src))
 
         # compile file with llvm
         obj = KLEE.kl_compile(src)
@@ -124,7 +125,7 @@ class KLEE:
 
         timeout = settings.timeout
         outdir = obj.with_name(obj.name + "-klee-out")
-        if outdir.exists():
+        if outdir.is_dir():
             shutil.rmtree(outdir)
 
         proc = KLEE.kl_exec(obj, timeout, outdir)
@@ -146,14 +147,14 @@ class KLEE:
             if line:
                 sys.stdout.flush()
                 if all(x not in line for x in ignores_run + ignores_done):
-                    logger.debug('worker {}: stdout: {}'.format(wid, line))
+                    mlog.debug('worker {}: stdout: {}'.format(wid, line))
 
                 if 'KLEE: HaltTimer invoked' in line:
-                    logger.info('worker {}: stdout: {}, timeout {}'
-                                .format(wid, src, timeout))
+                    mlog.info('worker {}: stdout: {}, timeout {}'
+                              .format(wid, src, timeout))
 
                 if "KLEE: ERROR" in line and "ASSERTION FAIL: 0" in line:
-                    logger.info('worker {}: found fix for {}'.format(wid, src))
+                    mlog.info('worker {}: found fix for {}'.format(wid, src))
                     break
 
         rs, rsErr = CM.decode_byte(proc.communicate())
@@ -167,7 +168,7 @@ class KLEE:
             for line in rs.splitlines():
                 if line:
                     if all(x not in line for x in ignores_done + ignores_miscs):
-                        logger.debug('rs: {}'.format(line))
+                        mlog.debug('rs: {}'.format(line))
 
                     # GOAL: uk_0 0, uk_1 0, uk_2 1
                     if 'GOAL' in line:
@@ -184,20 +185,22 @@ class CIL:
     def preproc(cls, src):
         assert src.is_file(), src
 
-        logger.info("preprocess and obtain AST from {}".format(src))
+        mlog.info("preprocess and get AST from '{}'".format(src))
         preproc_src = src.with_suffix('.preproc.c')  # /a.preproc.c
         ast_file = src.with_suffix('.ast')  # /a.ast
 
         cmd = "./preproc.exe {} {} {} {} {}"
-        cmd = cmd.format(src, settings.mainQ,
-                         settings.correctQ, preproc_src, ast_file)
-        logger.debug(cmd)
+        cmd = cmd.format(src, settings.mainQ, settings.correctQ,
+                         preproc_src, ast_file)
+        mlog.debug(cmd)
 
         out_msg, err_msg = CM.vcmd(cmd)
         assert not err_msg, err_msg
-        logger.debug(out_msg)
+        mlog.debug(out_msg)
+
         assert preproc_src.is_file(), preproc_src
         assert ast_file.is_file(), ast_file
+
         return preproc_src, ast_file
 
     @classmethod
@@ -209,12 +212,12 @@ class CIL:
         assert ast_file.is_file(), src
 
         cov_src = src.with_suffix('.cov.c')
-        logger.info("fault localization: {}".format(cov_src))
+        mlog.info("fault localization: {}".format(cov_src))
         cmd = "./coverage.exe {} {}".format(cov_src, ast_file)
-        logger.debug(cmd)
+        mlog.debug(cmd)
         out_msg, err_msg = CM.vcmd(cmd)
         assert not err_msg, err_msg
-        logger.debug(out_msg)
+        mlog.debug(out_msg)
         assert cov_src.is_file(), cov_src
         return cov_src
 
@@ -224,13 +227,13 @@ class CIL:
         assert ast_file.is_file(), src
 
         fl_src = src.with_suffix('.fl.c')
-        logger.info("get good/bad inps from {}".format(fl_src))
+        mlog.info("get good/bad inps from {}".format(fl_src))
         cmd = "./instr.exe {} {} {}".format(fl_src, ast_file, settings.maxV)
-        logger.debug(cmd)
+        mlog.debug(cmd)
 
         out_msg, err_msg = CM.vcmd(cmd)
         assert not err_msg, err_msg
-        logger.debug(out_msg)
+        mlog.debug(out_msg)
         assert fl_src.is_file()
         return fl_src
 
@@ -244,11 +247,11 @@ class CIL:
         label_src = src.with_suffix('.label.c')
         cmd = "./spy.exe {} {} {} {} {}".format(
             ast_file, label_src, ssids, settings.tplLevel, settings.maxV)
-        logger.debug(cmd)
+        mlog.debug(cmd)
         out_msg, err_msg = CM.vcmd(cmd)
         assert label_src.is_file(), label_src
-        # logger.debug(out_msg)
-        # logger.debug(err_msg)
+        # mlog.debug(out_msg)
+        # mlog.debug(err_msg)
 
         # compute tasks
         clist = out_msg.splitlines()[-1]
@@ -264,7 +267,7 @@ class CIL:
 
         from random import shuffle
         shuffle(tasks)
-        logger.debug("tasks {}".format(len(tasks)))
+        mlog.debug("tasks {}".format(len(tasks)))
 
         return label_src, tasks
 
@@ -279,24 +282,24 @@ class CIL:
         # call ocaml prog to transform file
 
         xinfo = "t{}_z{}_c{}".format(cid, len(idxs), myid)
-        logger.debug('worker {}: transform {} sid {} tpl {} xinfo {} idxs {} ***'
-                     .format(wid, src, sid,
-                             cid, xinfo, idxs))
+        mlog.debug('worker {}: transform {} sid {} tpl {} xinfo {} idxs {} ***'
+                   .format(wid, src, sid,
+                           cid, xinfo, idxs))
 
         cmd = ('./modify.exe {} {} {} {} "{}" {} {}'
                .format(src, inps_file,
                        sid, cid, " ".join(map(str, idxs)),
                        xinfo, settings.maxV))
 
-        logger.debug("$ {}".format(cmd))
+        mlog.debug("$ {}".format(cmd))
         rs, rs_err = CM.vcmd(cmd)
 
         # assert not rs, rs
-        logger.debug(rs_err[:-1] if rs_err.endswith("\n") else rs_err)
+        mlog.debug(rs_err[:-1] if rs_err.endswith("\n") else rs_err)
 
         if "error" in rs_err or "success" not in rs_err:
-            logger.error("worker {}: transform failed '{}' !".format(wid, cmd))
-            logger.error(rs_err)
+            mlog.error("worker {}: transform failed '{}' !".format(wid, cmd))
+            mlog.error(rs_err)
             raise AssertionError
 
         # obtained the created result
@@ -385,7 +388,7 @@ class Src:
         """
         assert tmpdir.is_dir(), tmpdir
 
-        logger.info("get good/bad inps from '{}'".format(self.src))
+        mlog.info("get good/bad inps from '{}'".format(self.src))
         fl_src = CIL.instr(self.src, self.ast_file)
         good_inps, bad_inps = KLEE.get_good_bad_inps(fl_src, tmpdir)
         return good_inps, bad_inps
@@ -423,8 +426,8 @@ class Src:
 
             workloads = CM.getWorkloads(
                 tasks, max_nprocesses=cpu_count(), chunksiz=2)
-            logger.info("workloads {}: {}"
-                        .format(len(workloads), map(len, workloads)))
+            mlog.info("workloads {}: {}"
+                      .format(len(workloads), map(len, workloads)))
 
             workers = [Process(target=Worker.wprocess,
                                args=(i, self.ast_file, label_src, inps_file,
@@ -441,7 +444,7 @@ class Src:
                                   tasks, V=None, Q=None)
 
         repair_srcs = [Src(r) for r in wrs if r]
-        logger.info("found {} candidate sols".format(len(repair_srcs)))
+        mlog.info("found {} candidate sols".format(len(repair_srcs)))
         return repair_srcs
 
     @classmethod
@@ -452,7 +455,7 @@ class Src:
         good_inps, bad_inps = set(), set()
         for src in srcs:
             good_inps_, bad_inps_ = src.get_good_bad_inps(tmpdir)
-            if not bad_inps_:
+            if not bad_inps_:  # found a fix
                 return src, None, None
             else:
                 for inp in good_inps_:
@@ -520,7 +523,7 @@ class Worker:
         if src.is_file():  # transform success
             uks = KLEE.klrun(src, self.wid)
             if uks:
-                logger.debug("{}: {} ===> {} ===> {}".format(
+                mlog.debug("{}: {} ===> {} ===> {}".format(
                     src, old_stmt, new_stmt, uks))
                 repair_src = self.repair(old_stmt, new_stmt, uks)
                 assert repair_src.is_file(), repair_src
@@ -551,7 +554,7 @@ class Worker:
                 w = cls(wid, src, label_src, inps_file, sid, cid, myid, idxs)
                 r = w.run()
                 if r:
-                    logger.debug("worker {}: sol found, break !".format(wid))
+                    mlog.debug("worker {}: sol found, break !".format(wid))
                     rs.append(r)
                     break
 
@@ -559,14 +562,14 @@ class Worker:
         else:
             for sid, cid, myid, idxs in tasks:
                 if V.value > 0:
-                    logger.debug("worker {}: sol found, break !".format(wid))
+                    mlog.debug("worker {}: sol found, break !".format(wid))
                     break
                 else:
                     w = cls(wid, src, label_src, inps_file,
                             sid, cid, myid, idxs)
                     r = w.run()
                     if r:
-                        logger.debug(
+                        mlog.debug(
                             "worker {}: sol found, break !".format(wid))
                         rs.append(r)
                         V.value = V.value + 1
@@ -583,42 +586,45 @@ class Repair:
         import tempfile
         self.tmpdir = pathlib.Path(tempfile.mkdtemp(
             dir=settings.tmpdir, prefix="CETI2_"))
-        tsrc = self.tmpdir / src.name
-        shutil.copyfile(src, tsrc)
-        assert tsrc.is_file()
-        self.src = tsrc
+        tmp_src = self.tmpdir / src.name
+        shutil.copyfile(src, tmp_src)
+        assert tmp_src.is_file()
+        self.src = tmp_src
 
     def start(self):
         orig_src = Src(self.src)
         good_inps, bad_inps = orig_src.get_good_bad_inps(self.tmpdir)
 
         if not bad_inps:
-            logger.info("no bad tests: {} seems correct!".format(orig_src.src))
+            mlog.info("no bad tests: '{}' seems correct!".format(orig_src.src))
             return
 
+        repair_src = None
         curr_iter = 0
         while True:
             curr_iter += 1
             suspicious_stmts = self.get_suspicious_stmts(
                 orig_src.cov_src, settings.topN, good_inps, bad_inps)
             assert suspicious_stmts, suspicious_stmts
-            logger.info("{} suspicious stmts: {}".format(
+            mlog.info("{} suspicious stmts: {}".format(
                 len(suspicious_stmts), ','.join(map(str, suspicious_stmts))))
 
             inps_file = self.write_inps(good_inps | bad_inps, "all_inps")
 
             candidate_srcs = orig_src.repair(inps_file, suspicious_stmts)
             if not candidate_srcs:
-                logger.info("no repair found. Stop!")
+                mlog.info("no repair found. Stop!")
                 break
 
-            logger.info("*** iter {}, candidates {}, goods {}, bads {}"
-                        .format(curr_iter, len(candidate_srcs),
-                                len(good_inps), len(bad_inps)))
+            mlog.info("*** iter {}, candidates {}, goods {}, bads {}"
+                      .format(curr_iter, len(candidate_srcs),
+                              len(good_inps), len(bad_inps)))
             repair_src, goods, bads = Src.check(candidate_srcs, self.tmpdir)
             if repair_src:
-                logger.info("candidate repair: {}".format(repair_src.src))
+                mlog.info(
+                    "Found repair: {}".format(repair_src.src))
                 break
+
             goods, bads = orig_src.check_inps(goods | bads)
             if goods:
                 for inp in goods:
@@ -627,14 +633,14 @@ class Repair:
                 for inp in bads:
                     bad_inps.add(inp)
 
-            logger.info("iters: {}, repair found: {}"
-                        .format(curr_iter, repair_src is not None))
+        mlog.info("iters: {}, repair found: {}"
+                  .format(curr_iter, repair_src is not None))
 
     def write_inps(self, inps, fname):
         contents = "\n".join(map(lambda s: " ".join(map(str, s)), inps))
         inps_file = self.tmpdir / fname
         inps_file.write_text(contents)
-        logger.debug("write: {}".format(inps_file))
+        mlog.debug("write: {}".format(inps_file))
         return inps_file
 
     def get_suspicious_stmts(self, cov_src, n, good_inps, bad_inps):
@@ -643,7 +649,7 @@ class Repair:
         assert good_inps, good_inps
         assert bad_inps, bad_inps
 
-        susp_stmts = faultloc.analyze(
-            cov_src, good_inps, bad_inps, settings.faultlocAlg, self.tmpdir)
+        susp_stmts = FaultLoc(cov_src, good_inps, bad_inps,
+                              settings.faultlocAlg, self.tmpdir).start()
         susp_stmts = [sid for sid, score_ in susp_stmts.most_common(n)]
         return susp_stmts
